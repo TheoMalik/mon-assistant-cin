@@ -2,10 +2,12 @@ import streamlit as st
 from tmdbv3api import TMDb, Movie, Discover
 import datetime
 import os
+import requests
 
 # --- CONFIGURATION TMDb ---
 tmdb = TMDb()
-tmdb.api_key = '5ccac4fafac407ac28bb55c4fd44fb9c' 
+API_KEY = '5ccac4fafac407ac28bb55c4fd44fb9c'  
+tmdb.api_key = API_KEY
 tmdb.language = 'fr'
 movie_service = Movie()
 discover = Discover()
@@ -38,47 +40,21 @@ def get_safe_list(api_response):
         return clean_list
     except: return []
 
-def get_providers(movie_id):
-    """Récupère les plateformes de streaming (Version robuste)"""
+def get_providers_direct(movie_id):
+    """Récupère le streaming via un appel direct (plus fiable pour Netflix/Disney)"""
     try:
-        # On récupère l'objet brut
-        raw = movie_service.watch_providers(movie_id)
+        url = f"https://api.themoviedb.org/3/movie/{movie_id}/watch/providers?api_key={API_KEY}"
+        response = requests.get(url)
+        data = response.json()
         
-        # 1. On essaie d'accéder aux résultats (dict ou objet)
-        results = None
-        if hasattr(raw, 'results'): results = raw.results
-        elif isinstance(raw, dict) and 'results' in raw: results = raw['results']
-        
-        if not results: return []
-
-        # 2. On cherche la France ('FR')
-        # L'astuce : on convertit 'results' en dict si ce n'est pas le cas
-        if hasattr(results, '_asdict'): results_dict = results._asdict()
-        elif hasattr(results, '__dict__'): results_dict = results.__dict__
-        elif isinstance(results, dict): results_dict = results
-        else: return [] # Format inconnu
-
-        if 'FR' not in results_dict: return []
-        fr_data = results_dict['FR']
-
-        # 3. On cherche 'flatrate' (Abonnement SVOD)
-        # Là aussi, fr_data peut être un objet ou un dict
-        flatrate = []
-        if isinstance(fr_data, dict):
-            flatrate = fr_data.get('flatrate', [])
-        else:
-            flatrate = getattr(fr_data, 'flatrate', [])
-
-        # 4. Extraction des noms
-        names = []
-        if flatrate:
-            for p in flatrate:
-                if isinstance(p, dict): names.append(p.get('provider_name'))
-                else: names.append(getattr(p, 'provider_name', ''))
-        
-        return names
-    except Exception:
+        if 'results' in data and 'FR' in data['results']:
+            fr_data = data['results']['FR']
+            # On cherche l'abonnement (flatrate)
+            if 'flatrate' in fr_data:
+                return [p['provider_name'] for p in fr_data['flatrate']]
+    exceptException:
         return []
+    return []
 
 def get_trailer(movie_id):
     """Récupère le lien YouTube de la bande-annonce"""
@@ -157,8 +133,8 @@ with tab_recherche:
                         with col1: st.write(f"**{titre}** ({annee})")
                         with col2: st.button("Ajouter", key=f"btn_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote))
                         
-                        # --- INFO STREAMING (Correction) ---
-                        platforms = get_providers(m_id)
+                        # --- INFO STREAMING (APPEL DIRECT) ---
+                        platforms = get_providers_direct(m_id)
                         if platforms:
                             st.info(f"📺 **Dispo sur : {', '.join(platforms)}**")
                         else:
@@ -257,7 +233,7 @@ with tab_recos:
                         
                         # --- INFO STREAMING ---
                         if m_id:
-                            plats = get_providers(m_id)
+                            plats = get_providers_direct(m_id)
                             if plats: 
                                 st.info(f"📺 **{', '.join(plats[:2])}**")
                         
