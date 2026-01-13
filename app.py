@@ -80,19 +80,17 @@ if search_query:
 
 st.divider()
 
-# --- SECTION 2 : SORTIES DE LA SEMAINE (MULTI-GENRES) ---
+# --- SECTION 2 : SORTIES DE LA SEMAINE ---
 st.subheader("🗓️ Sorties Cinéma de la semaine")
 try:
     today = datetime.date.today()
     next_week = today + datetime.timedelta(days=7)
     
-    # Genres : Action(28), Aventure(12), Comédie(35), Thriller(53), Drame(18), SF(878), Histoire(36), Animation(16)
-    genre_ids = "28,12,35,53,18,878,36,16"
-    
+    # Genres : Action, Aventure, Comédie, Thriller, Drame, SF, Histoire, Animation
     films_semaine = discover.discover_movies({
         'primary_release_date.gte': today,
         'primary_release_date.lte': next_week,
-        'with_genres': genre_ids,
+        'with_genres': "28,12,35,53,18,878,36,16",
         'region': 'FR',
         'sort_by': 'popularity.desc'
     })
@@ -100,22 +98,35 @@ try:
     ids_vus = [m['id'] for m in st.session_state.historique]
     compteur = 0
 
-    for f in films_semaine:
+    # On transforme en liste pour être sûr
+    liste_films = list(films_semaine)
+
+    for f in liste_films:
         if str(f.id) in ids_vus: continue
         compteur += 1
+        
         col1, col2 = st.columns([1, 2])
         vote_f = getattr(f, 'vote_average', 0)
+        
         with col1:
             path = getattr(f, 'poster_path', None)
-            if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
+            if path:
+                st.image(f"https://image.tmdb.org/t/p/w500{path}")
+            else:
+                st.write("🎬 (Pas d'affiche)")
+                
         with col2:
             st.markdown(f"**{f.title}**")
-            st.caption(f"⭐ {vote_f}/10 | Genre principal : {f.genre_ids[0] if f.genre_ids else 'N/A'}")
+            st.caption(f"⭐ {vote_f}/10")
             st.button("J'ai vu", key=f"saw_{f.id}", on_click=callback_ajouter_film, args=(f.id, f.title, vote_f))
+        
         st.divider()
-        if compteur >= 10: break # On affiche les 10 films les plus populaires
+        if compteur >= 10: break 
+        
+    if compteur == 0:
+        st.info("Aucun nouveau film cette semaine correspondant à tes critères.")
 except Exception as e:
-        st.error(f"Erreur recherche : {e}")
+    st.error(f"Erreur chargement sorties : {e}")
 
 # --- SECTION 3 : RECOMMANDATIONS ---
 films_aimes = [m for m in st.session_state.historique if m['avis'] == 'Aimé']
@@ -123,14 +134,16 @@ if films_aimes:
     st.subheader(f"✨ Parce que tu as aimé '{films_aimes[-1]['title']}'")
     try:
         recos = movie_service.recommendations(movie_id=films_aimes[-1]['id'])
-        cols = st.columns(3)
-        for i, r in enumerate(list(recos)[:3]):
-            with cols[i]:
-                path = getattr(r, 'poster_path', None)
-                if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
-                st.caption(f"{r.title} (⭐ {getattr(r, 'vote_average', 0)})")
+        recos_list = list(recos)
+        if recos_list:
+            cols = st.columns(3)
+            for i, r in enumerate(recos_list[:3]):
+                with cols[i]:
+                    path = getattr(r, 'poster_path', None)
+                    if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
+                    st.caption(f"{r.title} (⭐ {getattr(r, 'vote_average', 0)})")
     except:
-        st.write("Ajoute plus de films !")
+        pass # Silencieux si pas de recos
 st.divider()
 
 # --- SECTION 4 : MON HISTORIQUE & AVIS ---
