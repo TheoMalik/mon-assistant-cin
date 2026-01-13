@@ -212,4 +212,16 @@ st.divider()
 st.subheader("📜 Mon Historique")
 if st.session_state.historique:
     for movie in reversed(st.session_state.historique):
-        with st.
+        with st.expander(f"{movie['title']} — ⭐ {movie['vote']}/10"):
+            col_avis, col_del = st.columns([3, 1])
+            with col_avis:
+                choix = ["Aimé", "Bof"]
+                idx = choix.index(movie['avis']) if movie['avis'] in choix else 0
+                nouvel_avis = st.radio("Avis :", choix, index=idx, key=f"rad_{movie['id']}", horizontal=True)
+                if nouvel_avis != movie['avis']: callback_modifier_avis(movie['id'], nouvel_avis)
+            with col_del:
+                st.button("Supprimer", key=f"del_{movie['id']}", on_click=callback_supprimer_film, args=(movie['id'],))
+    
+    if st.button("🗑️ Tout effacer", key="clear_all"): callback_vider_tout()
+else:
+    st.info("Historique vide.")
