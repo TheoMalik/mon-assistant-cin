@@ -5,7 +5,7 @@ import os
 
 # --- CONFIGURATION TMDb ---
 tmdb = TMDb()
-tmdb.api_key = '5ccac4fafac407ac28bb55c4fd44fb9c' 
+tmdb.api_key = '5ccac4fafac407ac28bb55c4fd44fb9c'
 tmdb.language = 'fr'
 movie_service = Movie()
 discover = Discover()
@@ -67,8 +67,14 @@ search_query = st.text_input("Rechercher un film...", key="input_search")
 
 if search_query:
     try:
-        results = movie_service.search(search_query)
-        for r in list(results)[:3]:
+        results_raw = movie_service.search(search_query)
+        # SÉCURITÉ : On extrait la liste de films
+        results_list = results_raw.results if hasattr(results_raw, 'results') else list(results_raw)
+        
+        for r in results_list[:3]:
+            # On vérifie que 'r' n'est pas une simple chaîne de texte
+            if isinstance(r, str): continue
+            
             col1, col2 = st.columns([3, 1])
             vote_global = getattr(r, 'vote_average', 0)
             with col1:
@@ -84,47 +90,35 @@ st.divider()
 st.subheader("🗓️ Sorties Cinéma de la semaine")
 try:
     today = datetime.date.today()
-    next_week = today + datetime.timedelta(days=7)
-    
-    # Genres : Action, Aventure, Comédie, Thriller, Drame, SF, Histoire, Animation
-    films_semaine = discover.discover_movies({
+    films_raw = discover.discover_movies({
         'primary_release_date.gte': today,
-        'primary_release_date.lte': next_week,
+        'primary_release_date.lte': today + datetime.timedelta(days=7),
         'with_genres': "28,12,35,53,18,878,36,16",
         'region': 'FR',
         'sort_by': 'popularity.desc'
     })
 
+    # SÉCURITÉ : On s'assure d'avoir la liste 'results'
+    liste_films = films_raw.results if hasattr(films_raw, 'results') else list(films_raw)
     ids_vus = [m['id'] for m in st.session_state.historique]
     compteur = 0
 
-    # On transforme en liste pour être sûr
-    liste_films = list(films_semaine)
-
     for f in liste_films:
-        if str(f.id) in ids_vus: continue
+        if isinstance(f, str) or str(getattr(f, 'id', '')) in ids_vus: continue
         compteur += 1
         
         col1, col2 = st.columns([1, 2])
         vote_f = getattr(f, 'vote_average', 0)
-        
         with col1:
             path = getattr(f, 'poster_path', None)
-            if path:
-                st.image(f"https://image.tmdb.org/t/p/w500{path}")
-            else:
-                st.write("🎬 (Pas d'affiche)")
-                
+            if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
         with col2:
-            st.markdown(f"**{f.title}**")
+            st.markdown(f"**{getattr(f, 'title', 'Sans titre')}**")
             st.caption(f"⭐ {vote_f}/10")
             st.button("J'ai vu", key=f"saw_{f.id}", on_click=callback_ajouter_film, args=(f.id, f.title, vote_f))
         
         st.divider()
         if compteur >= 10: break 
-        
-    if compteur == 0:
-        st.info("Aucun nouveau film cette semaine correspondant à tes critères.")
 except Exception as e:
     st.error(f"Erreur chargement sorties : {e}")
 
@@ -133,17 +127,18 @@ films_aimes = [m for m in st.session_state.historique if m['avis'] == 'Aimé']
 if films_aimes:
     st.subheader(f"✨ Parce que tu as aimé '{films_aimes[-1]['title']}'")
     try:
-        recos = movie_service.recommendations(movie_id=films_aimes[-1]['id'])
-        recos_list = list(recos)
+        recos_raw = movie_service.recommendations(movie_id=films_aimes[-1]['id'])
+        recos_list = recos_raw.results if hasattr(recos_raw, 'results') else list(recos_raw)
         if recos_list:
             cols = st.columns(3)
             for i, r in enumerate(recos_list[:3]):
+                if isinstance(r, str): continue
                 with cols[i]:
                     path = getattr(r, 'poster_path', None)
                     if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
-                    st.caption(f"{r.title} (⭐ {getattr(r, 'vote_average', 0)})")
+                    st.caption(f"{getattr(r, 'title', '')} (⭐ {getattr(r, 'vote_average', 0)})")
     except:
-        pass # Silencieux si pas de recos
+        pass
 st.divider()
 
 # --- SECTION 4 : MON HISTORIQUE & AVIS ---
