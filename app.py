@@ -114,8 +114,8 @@ try:
             st.button("J'ai vu", key=f"saw_{f.id}", on_click=callback_ajouter_film, args=(f.id, f.title, vote_f))
         st.divider()
         if compteur >= 10: break # On affiche les 10 films les plus populaires
-except:
-    st.write("Erreur chargement sorties.")
+except Exception as e:
+        st.error(f"Erreur recherche : {e}")
 
 # --- SECTION 3 : RECOMMANDATIONS ---
 films_aimes = [m for m in st.session_state.historique if m['avis'] == 'Aimé']
