@@ -121,21 +121,21 @@ if search_query:
 
 st.divider()
 
-# --- SECTION 2 : A L'AFFICHE (Large) ---
-st.subheader("🗓️ À l'affiche (Populaires)")
+# --- SECTION 2 : A L'AFFICHE (Ciblé & Populaire) ---
+st.subheader("🗓️ À l'affiche (Sélection Populaire)")
 try:
     today = datetime.date.today()
-    # On regarde large : 3 semaines en arrière et 2 semaines en avant
+    # On garde la fenêtre large qui fonctionne (-3 semaines / +2 semaines)
     start_date = today - datetime.timedelta(days=21)
     end_date = today + datetime.timedelta(days=14)
     
-    # Recherche beaucoup plus permissive
+    # Genres : Action(28), Aventure(12), Comédie(35), Thriller(53), SF(878), Histoire(36)
+    # J'ai retiré Drame et Animation pour cibler "Blockbusters", dis-moi si tu veux les remettre.
     raw_films = discover.discover_movies({
         'release_date.gte': start_date.strftime('%Y-%m-%d'),
         'release_date.lte': end_date.strftime('%Y-%m-%d'),
+        'with_genres': "28,12,35,53,878,36", 
         'sort_by': 'popularity.desc'
-        # J'ai enlevé 'region' et 'with_genres' pour tester. 
-        # Si ça marche, on remettra les genres après !
     })
 
     liste_films = get_safe_list(raw_films)
@@ -143,16 +143,17 @@ try:
     compteur = 0
 
     if not liste_films:
-        st.info("Bizarre... Aucun film trouvé, même en recherche large.")
+        st.info("Aucun film correspondant à tes genres pour le moment.")
     else:
         for f in liste_films:
+            # Sécurités habituelles
             m_id = getattr(f, 'id', f.get('id')) if hasattr(f, 'id') or isinstance(f, dict) else None
             if not m_id or str(m_id) in ids_vus: continue
             
             compteur += 1
             col1, col2 = st.columns([1, 2])
             
-            # Récupération sécurisée des infos
+            # Données
             vote_f = getattr(f, 'vote_average', f.get('vote_average', 0)) if hasattr(f, 'vote_average') or isinstance(f, dict) else 0
             titre = getattr(f, 'title', f.get('title', 'Sans titre')) if hasattr(f, 'title') or isinstance(f, dict) else 'Sans titre'
             path = getattr(f, 'poster_path', f.get('poster_path')) if hasattr(f, 'poster_path') or isinstance(f, dict) else None
@@ -167,10 +168,10 @@ try:
                 st.button("J'ai vu", key=f"saw_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote_f))
             
             st.divider()
-            if compteur >= 10: break 
-        
+            if compteur >= 10: break # Top 10 des résultats
+            
         if compteur == 0:
-            st.info("Tu as déjà vu tous les films populaires du moment !")
+            st.info("Tu es à jour sur les gros films du moment !")
 
 except Exception as e:
     st.error(f"Erreur technique : {e}")
