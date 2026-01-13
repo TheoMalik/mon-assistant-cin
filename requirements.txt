@@ -1,1 +1,2 @@
-echo "streamlit\ntmdbv3api" > requirements.txt
+streamlit
+tmdbv3api
