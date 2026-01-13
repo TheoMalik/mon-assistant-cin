@@ -5,7 +5,7 @@ import os
 
 # --- CONFIGURATION TMDb ---
 tmdb = TMDb()
-tmdb.api_key = '5ccac4fafac407ac28bb55c4fd44fb9c' 
+tmdb.api_key = '5ccac4fafac407ac28bb55c4fd44fb9c'
 tmdb.language = 'fr'
 movie_service = Movie()
 discover = Discover()
@@ -16,40 +16,47 @@ HISTORIQUE_FILE = "mes_films.txt"
 if 'historique' not in st.session_state:
     if os.path.exists(HISTORIQUE_FILE):
         with open(HISTORIQUE_FILE, "r", encoding="utf-8") as f:
+            # Format : id|titre|note_globale|mon_avis
             lignes = [line.strip().split("|") for line in f.readlines() if "|" in line]
-            st.session_state.historique = [{'id': l[0], 'title': l[1]} for l in lignes]
+            st.session_state.historique = [
+                {'id': l[0], 'title': l[1], 'vote': l[2], 'avis': l[3]} for l in lignes
+            ]
     else:
         st.session_state.historique = []
 
-# --- FONCTIONS ACTIONS (CALLBACKS) ---
-def callback_ajouter_film(movie_id, title):
+# --- FONCTIONS ACTIONS ---
+def callback_ajouter_film(movie_id, title, vote):
     movie_id_str = str(movie_id)
     if not any(m['id'] == movie_id_str for m in st.session_state.historique):
-        st.session_state.historique.append({'id': movie_id_str, 'title': title})
-        with open(HISTORIQUE_FILE, "a", encoding="utf-8") as f:
-            f.write(f"{movie_id_str}|{title}\n")
+        # Par défaut, un film ajouté est considéré comme "Aimé"
+        nouvel_entree = {'id': movie_id_str, 'title': title, 'vote': str(vote), 'avis': 'Aimé'}
+        st.session_state.historique.append(nouvel_entree)
+        sauvegarder_fichier()
         st.toast(f"✅ {title} ajouté !")
 
+def callback_modifier_avis(movie_id, nouvel_avis):
+    for m in st.session_state.historique:
+        if m['id'] == str(movie_id):
+            m['avis'] = nouvel_avis
+            break
+    sauvegarder_fichier()
+    st.rerun()
+
 def callback_supprimer_film(movie_id):
-    movie_id_str = str(movie_id)
-    st.session_state.historique = [m for m in st.session_state.historique if m['id'] != movie_id_str]
+    st.session_state.historique = [m for m in st.session_state.historique if m['id'] != str(movie_id)]
+    sauvegarder_fichier()
+    st.toast("🗑️ Supprimé")
+
+def sauvegarder_fichier():
     with open(HISTORIQUE_FILE, "w", encoding="utf-8") as f:
         for m in st.session_state.historique:
-            f.write(f"{m['id']}|{m['title']}\n")
-    st.toast("🗑️ Film supprimé")
-
-def callback_vider_tout():
-    if os.path.exists(HISTORIQUE_FILE):
-        os.remove(HISTORIQUE_FILE)
-    st.session_state.historique = []
-    st.toast("🧹 Historique vidé")
+            f.write(f"{m['id']}|{m['title']}|{m['vote']}|{m['avis']}\n")
 
 # --- INTERFACE ---
 st.set_page_config(page_title="CinéPass Companion", page_icon="🍿")
-
 st.title("🍿 Mon Assistant Ciné")
 
-# --- SECTION 1 : RECHERCHE ---
+# --- RECHERCHE ---
 st.subheader("🔍 Ajouter un film déjà vu")
 search_query = st.text_input("Rechercher un film...", key="input_search")
 
@@ -58,17 +65,17 @@ if search_query:
         results = movie_service.search(search_query)
         for r in list(results)[:3]:
             col1, col2 = st.columns([3, 1])
+            vote_global = getattr(r, 'vote_average', 0)
             with col1:
-                year = r.release_date[:4] if getattr(r, 'release_date', None) else "????"
-                st.write(f"**{r.title}** ({year})")
+                st.write(f"**{r.title}** (⭐ {vote_global}/10)")
             with col2:
-                st.button("Ajouter", key=f"btn_{r.id}", on_click=callback_ajouter_film, args=(r.id, r.title))
+                st.button("Ajouter", key=f"btn_{r.id}", on_click=callback_ajouter_film, args=(r.id, r.title, vote_global))
     except Exception as e:
         st.error(f"Erreur : {e}")
 
 st.divider()
 
-# --- SECTION 2 : SORTIES DE LA SEMAINE ---
+# --- SORTIES DE LA SEMAINE ---
 st.subheader("🗓️ Sorties de la semaine")
 try:
     today = datetime.date.today()
@@ -78,58 +85,56 @@ try:
         'with_genres': '878,36',
         'region': 'FR'
     })
-
     ids_vus = [m['id'] for m in st.session_state.historique]
-    compteur_sorties = 0
-
     for f in films_semaine:
         if str(f.id) in ids_vus: continue
-        compteur_sorties += 1
         col1, col2 = st.columns([1, 2])
+        vote_f = getattr(f, 'vote_average', 0)
         with col1:
             if getattr(f, 'poster_path', None):
                 st.image(f"https://image.tmdb.org/t/p/w500{f.poster_path}")
         with col2:
-            st.markdown(f"**{f.title}**")
-            st.button("J'ai vu", key=f"saw_{f.id}", on_click=callback_ajouter_film, args=(f.id, f.title))
+            st.markdown(f"**{f.title}** \n⭐ {vote_f}/10")
+            st.button("J'ai vu", key=f"saw_{f.id}", on_click=callback_ajouter_film, args=(f.id, f.title, vote_f))
         st.divider()
-    
-    if compteur_sorties == 0:
-        st.info("Tu as déjà vu toutes les sorties SF/Histoire de la semaine ! 🚀")
 except:
-    st.write("Impossible de charger les sorties.")
+    st.write("Erreur chargement sorties.")
 
-# --- SECTION 3 : RECOMMANDATIONS ---
-if st.session_state.historique:
-    st.subheader("✨ Parce que tu as aimé...")
+# --- RECOMMANDATIONS (FILTRÉES) ---
+# On cherche le dernier film que l'utilisateur a "Aimé"
+films_aimes = [m for m in st.session_state.historique if m['avis'] == 'Aimé']
+
+if films_aimes:
+    st.subheader(f"✨ Parce que tu as aimé '{films_aimes[-1]['title']}'")
     try:
-        dernier_id = st.session_state.historique[-1]['id']
-        recos = movie_service.recommendations(movie_id=dernier_id)
-        if recos:
-            cols = st.columns(3)
-            for i, r in enumerate(list(recos)[:3]):
-                with cols[i]:
-                    if getattr(r, 'poster_path', None):
-                        st.image(f"https://image.tmdb.org/t/p/w500{r.poster_path}")
-                    st.caption(r.title)
+        recos = movie_service.recommendations(movie_id=films_aimes[-1]['id'])
+        cols = st.columns(3)
+        for i, r in enumerate(list(recos)[:3]):
+            with cols[i]:
+                if getattr(r, 'poster_path', None):
+                    st.image(f"https://image.tmdb.org/t/p/w500{r.poster_path}")
+                st.caption(f"{r.title} (⭐ {getattr(r, 'vote_average', 0)})")
     except:
-        st.write("Ajoute plus de films !")
-    st.divider()
+        st.write("Plus de recommandations bientôt !")
+elif st.session_state.historique:
+    st.info("Change l'avis d'un film en 'Aimé' pour voir des recommandations !")
 
-# --- SECTION 4 : MON HISTORIQUE (NOUVELLE PLACE) ---
-st.subheader("📜 Mon Historique")
+st.divider()
+
+# --- MON HISTORIQUE AVEC NOTATION ---
+st.subheader("📜 Mon Historique & Avis")
 if not st.session_state.historique:
-    st.info("Ton historique est vide pour le moment.")
+    st.info("Ton historique est vide.")
 else:
-    st.write(f"Tu as enregistré **{len(st.session_state.historique)}** films.")
-    
-    # On affiche les films sous forme de liste propre
-    for movie in reversed(st.session_state.historique): # 'reversed' pour voir le plus récent en haut
-        col_t, col_b = st.columns([5, 1])
-        col_t.write(f"🎥 {movie['title']}")
-        col_b.button("❌", key=f"del_main_{movie['id']}", on_click=callback_supprimer_film, args=(movie['id'],))
-    
-    st.write("") # Espace
-    if st.button("🗑️ Tout effacer l'historique", key="clear_all_main"):
-        callback_vider_tout()
-        st.rerun()
+    for movie in reversed(st.session_state.historique):
+        with st.expander(f"{movie['title']} — Note : {movie['vote']}/10"):
+            col_avis, col_del = st.columns([3, 1])
+            with col_avis:
+                # Sélecteur d'avis
+                choix = ["Aimé", "Bof"]
+                index_actuel = choix.index(movie['avis']) if movie['avis'] in choix else 0
+                nouvel_avis = st.radio(f"Ton avis sur {movie['title']} :", choix, index=index_actuel, key=f"rad_{movie['id']}", horizontal=True)
+                if nouvel_avis != movie['avis']:
+                    callback_modifier_avis(movie['id'], nouvel_avis)
+            with col_del:
+                st.button("Supprimer", key=f"del_{movie['id']}", on_click=callback_supprimer_film, args=(movie['id'],))
