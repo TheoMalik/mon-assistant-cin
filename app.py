@@ -5,15 +5,14 @@ import os
 
 # --- CONFIGURATION TMDb ---
 tmdb = TMDb()
-tmdb.api_key = '5ccac4fafac407ac28bb55c4fd44fb9c'
+tmdb.api_key = '5ccac4fafac407ac28bb55c4fd44fb9c' 
 tmdb.language = 'fr'
 movie_service = Movie()
 discover = Discover()
 
-# --- INITIALISATION DES VARIABLES ---
+# --- INITIALISATION ---
 HISTORIQUE_FILE = "mes_films.txt"
 
-# Initialisation sécurisée de l'historique (ID + Titre + Note + Avis)
 if 'historique' not in st.session_state:
     st.session_state.historique = []
     if os.path.exists(HISTORIQUE_FILE):
@@ -21,24 +20,17 @@ if 'historique' not in st.session_state:
             for line in f.readlines():
                 l = line.strip().split("|")
                 if len(l) >= 2:
-                    # On gère la transition ancien/nouveau format
-                    m_id = l[0]
-                    m_title = l[1]
-                    m_vote = l[2] if len(l) > 2 else "0.0"
-                    m_avis = l[3] if len(l) > 3 else "Aimé"
                     st.session_state.historique.append({
-                        'id': m_id, 
-                        'title': m_title, 
-                        'vote': m_vote, 
-                        'avis': m_avis
+                        'id': l[0], 'title': l[1], 
+                        'vote': l[2] if len(l) > 2 else "0.0", 
+                        'avis': l[3] if len(l) > 3 else "Aimé"
                     })
 
-# --- FONCTIONS ACTIONS (CALLBACKS) ---
+# --- FONCTIONS ACTIONS ---
 def callback_ajouter_film(movie_id, title, vote):
     movie_id_str = str(movie_id)
     if not any(m['id'] == movie_id_str for m in st.session_state.historique):
-        nouvel_entree = {'id': movie_id_str, 'title': title, 'vote': str(vote), 'avis': 'Aimé'}
-        st.session_state.historique.append(nouvel_entree)
+        st.session_state.historique.append({'id': movie_id_str, 'title': title, 'vote': str(vote), 'avis': 'Aimé'})
         sauvegarder_fichier()
         st.toast(f"✅ {title} ajouté !")
 
@@ -61,10 +53,9 @@ def sauvegarder_fichier():
             f.write(f"{m['id']}|{m['title']}|{m['vote']}|{m['avis']}\n")
 
 def callback_vider_tout():
-    if os.path.exists(HISTORIQUE_FILE):
-        os.remove(HISTORIQUE_FILE)
+    if os.path.exists(HISTORIQUE_FILE): os.remove(HISTORIQUE_FILE)
     st.session_state.historique = []
-    st.toast("🧹 Historique vidé")
+    st.rerun()
 
 # --- INTERFACE ---
 st.set_page_config(page_title="CinéPass Companion", page_icon="🍿")
@@ -89,28 +80,40 @@ if search_query:
 
 st.divider()
 
-# --- SECTION 2 : SORTIES DE LA SEMAINE ---
-st.subheader("🗓️ Sorties de la semaine")
+# --- SECTION 2 : SORTIES DE LA SEMAINE (MULTI-GENRES) ---
+st.subheader("🗓️ Sorties Cinéma de la semaine")
 try:
     today = datetime.date.today()
+    next_week = today + datetime.timedelta(days=7)
+    
+    # Genres : Action(28), Aventure(12), Comédie(35), Thriller(53), Drame(18), SF(878), Histoire(36), Animation(16)
+    genre_ids = "28,12,35,53,18,878,36,16"
+    
     films_semaine = discover.discover_movies({
         'primary_release_date.gte': today,
-        'primary_release_date.lte': today + datetime.timedelta(days=7),
-        'with_genres': '878,36',
-        'region': 'FR'
+        'primary_release_date.lte': next_week,
+        'with_genres': genre_ids,
+        'region': 'FR',
+        'sort_by': 'popularity.desc'
     })
+
     ids_vus = [m['id'] for m in st.session_state.historique]
+    compteur = 0
+
     for f in films_semaine:
         if str(f.id) in ids_vus: continue
+        compteur += 1
         col1, col2 = st.columns([1, 2])
         vote_f = getattr(f, 'vote_average', 0)
         with col1:
-            if getattr(f, 'poster_path', None):
-                st.image(f"https://image.tmdb.org/t/p/w500{f.poster_path}")
+            path = getattr(f, 'poster_path', None)
+            if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
         with col2:
-            st.markdown(f"**{f.title}** \n⭐ {vote_f}/10")
+            st.markdown(f"**{f.title}**")
+            st.caption(f"⭐ {vote_f}/10 | Genre principal : {f.genre_ids[0] if f.genre_ids else 'N/A'}")
             st.button("J'ai vu", key=f"saw_{f.id}", on_click=callback_ajouter_film, args=(f.id, f.title, vote_f))
         st.divider()
+        if compteur >= 10: break # On affiche les 10 films les plus populaires
 except:
     st.write("Erreur chargement sorties.")
 
@@ -123,8 +126,8 @@ if films_aimes:
         cols = st.columns(3)
         for i, r in enumerate(list(recos)[:3]):
             with cols[i]:
-                if getattr(r, 'poster_path', None):
-                    st.image(f"https://image.tmdb.org/t/p/w500{r.poster_path}")
+                path = getattr(r, 'poster_path', None)
+                if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
                 st.caption(f"{r.title} (⭐ {getattr(r, 'vote_average', 0)})")
     except:
         st.write("Ajoute plus de films !")
@@ -132,11 +135,9 @@ st.divider()
 
 # --- SECTION 4 : MON HISTORIQUE & AVIS ---
 st.subheader("📜 Mon Historique & Avis")
-if not st.session_state.historique:
-    st.info("Ton historique est vide.")
-else:
+if st.session_state.historique:
     for movie in reversed(st.session_state.historique):
-        with st.expander(f"{movie['title']} — Note : {movie['vote']}/10"):
+        with st.expander(f"{movie['title']} — ⭐ {movie['vote']}/10"):
             col_avis, col_del = st.columns([3, 1])
             with col_avis:
                 choix = ["Aimé", "Bof"]
@@ -149,4 +150,5 @@ else:
     
     if st.button("🗑️ Tout effacer", key="clear_all"):
         callback_vider_tout()
-        st.rerun()
+else:
+    st.info("Ton historique est vide.")
