@@ -1,5 +1,5 @@
 import streamlit as st
-from tmdbv3api import TMDb, Movie, Discover
+from tmdbv3api import TMDb, Movie, Discover, TV
 import datetime
 import os
 import requests 
@@ -9,28 +9,51 @@ tmdb = TMDb()
 API_KEY = '5ccac4fafac407ac28bb55c4fd44fb9c'  
 tmdb.api_key = API_KEY
 tmdb.language = 'fr'
+
+# Services
 movie_service = Movie()
+tv_service = TV()
 discover = Discover()
 
-# --- INITIALISATION ---
-HISTORIQUE_FILE = "mes_films.txt"
+# --- GESTION DES FICHIERS (Double Sauvegarde) ---
+FILES = {
+    "movie": "mes_films.txt",
+    "tv": "mes_series.txt"
+}
 
-if 'historique' not in st.session_state:
-    st.session_state.historique = []
-    if os.path.exists(HISTORIQUE_FILE):
-        with open(HISTORIQUE_FILE, "r", encoding="utf-8") as f:
+# On initialise les historiques s'ils n'existent pas
+if 'historique_movie' not in st.session_state: st.session_state.historique_movie = []
+if 'historique_tv' not in st.session_state: st.session_state.historique_tv = []
+
+def charger_historique(media_type):
+    """Charge le fichier correspondant au mode (film ou tv)"""
+    file_path = FILES[media_type]
+    data = []
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
             for line in f.readlines():
                 l = line.strip().split("|")
                 if len(l) >= 2:
-                    st.session_state.historique.append({
+                    data.append({
                         'id': l[0], 'title': l[1], 
                         'vote': l[2] if len(l) > 2 else "0.0", 
                         'avis': l[3] if len(l) > 3 else "Aimé"
                     })
+    return data
 
-# --- FONCTIONS UTILITAIRES ---
+def sauvegarder_historique(media_type, data_list):
+    """Sauvegarde la liste dans le bon fichier"""
+    file_path = FILES[media_type]
+    with open(file_path, "w", encoding="utf-8") as f:
+        for m in data_list:
+            f.write(f"{m['id']}|{m['title']}|{m['vote']}|{m['avis']}\n")
+
+# Chargement au démarrage
+st.session_state.historique_movie = charger_historique("movie")
+st.session_state.historique_tv = charger_historique("tv")
+
+# --- FONCTIONS UTILITAIRES UNIVERSELLES ---
 def get_safe_list(api_response):
-    """Nettoie la réponse API"""
     try:
         if hasattr(api_response, 'results'): data = api_response.results
         elif isinstance(api_response, dict) and 'results' in api_response: data = api_response['results']
@@ -40,26 +63,26 @@ def get_safe_list(api_response):
         return clean_list
     except: return []
 
-def get_providers_direct(movie_id):
-    """Récupère le streaming via un appel direct (plus fiable pour Netflix/Disney)"""
+def get_providers_direct(media_id, media_type):
+    """Récupère le streaming (Netflix etc) pour Film ou Série"""
     try:
-        url = f"https://api.themoviedb.org/3/movie/{movie_id}/watch/providers?api_key={API_KEY}"
+        # L'URL change selon le type (movie ou tv)
+        url = f"https://api.themoviedb.org/3/{media_type}/{media_id}/watch/providers?api_key={API_KEY}"
         response = requests.get(url)
         data = response.json()
         
         if 'results' in data and 'FR' in data['results']:
             fr_data = data['results']['FR']
-            # On cherche l'abonnement (flatrate)
             if 'flatrate' in fr_data:
                 return [p['provider_name'] for p in fr_data['flatrate']]
-    except Exception: # <--- C'EST CORRIGÉ ICI (Espace ajouté)
-        return []
+    except Exception: return []
     return []
 
-def get_trailer(movie_id):
-    """Récupère le lien YouTube de la bande-annonce"""
+def get_trailer(media_id, media_type):
+    """Récupère le trailer (Compatible Film et Série)"""
     try:
-        videos = movie_service.videos(movie_id)
+        service = movie_service if media_type == 'movie' else tv_service
+        videos = service.videos(media_id)
         for v in videos:
             if getattr(v, 'site', '') == "YouTube" and getattr(v, 'type', '') == "Trailer":
                 return f"https://www.youtube.com/watch?v={v.key}"
@@ -69,206 +92,223 @@ def get_trailer(movie_id):
     except: return None
     return None
 
-# --- ACTIONS ---
-def callback_ajouter_film(movie_id, title, vote):
-    movie_id_str = str(movie_id)
-    if not any(m['id'] == movie_id_str for m in st.session_state.historique):
-        st.session_state.historique.append({'id': movie_id_str, 'title': title, 'vote': str(vote), 'avis': 'Aimé'})
-        sauvegarder_fichier()
+# --- ACTIONS (Adaptées au mode) ---
+def callback_ajouter(media_id, title, vote, media_type):
+    mid = str(media_id)
+    target_list = st.session_state.historique_movie if media_type == 'movie' else st.session_state.historique_tv
+    
+    if not any(m['id'] == mid for m in target_list):
+        target_list.append({'id': mid, 'title': title, 'vote': str(vote), 'avis': 'Aimé'})
+        sauvegarder_historique(media_type, target_list)
         st.toast(f"✅ {title} ajouté !")
 
-def callback_modifier_avis(movie_id, nouvel_avis):
-    for m in st.session_state.historique:
-        if m['id'] == str(movie_id):
-            m['avis'] = nouvel_avis
-            break
-    sauvegarder_fichier()
-    st.rerun()
-
-def callback_supprimer_film(movie_id):
-    st.session_state.historique = [m for m in st.session_state.historique if m['id'] != str(movie_id)]
-    sauvegarder_fichier()
+def callback_supprimer(media_id, media_type):
+    mid = str(media_id)
+    if media_type == 'movie':
+        st.session_state.historique_movie = [m for m in st.session_state.historique_movie if m['id'] != mid]
+        sauvegarder_historique('movie', st.session_state.historique_movie)
+    else:
+        st.session_state.historique_tv = [m for m in st.session_state.historique_tv if m['id'] != mid]
+        sauvegarder_historique('tv', st.session_state.historique_tv)
     st.toast("🗑️ Supprimé")
 
-def sauvegarder_fichier():
-    with open(HISTORIQUE_FILE, "w", encoding="utf-8") as f:
-        for m in st.session_state.historique:
-            f.write(f"{m['id']}|{m['title']}|{m['vote']}|{m['avis']}\n")
+def callback_modifier_avis(media_id, nouvel_avis, media_type):
+    target_list = st.session_state.historique_movie if media_type == 'movie' else st.session_state.historique_tv
+    for m in target_list:
+        if m['id'] == str(media_id):
+            m['avis'] = nouvel_avis
+            break
+    sauvegarder_historique(media_type, target_list)
+    st.rerun()
 
-def callback_vider_tout():
-    if os.path.exists(HISTORIQUE_FILE): os.remove(HISTORIQUE_FILE)
-    st.session_state.historique = []
+def callback_vider(media_type):
+    file_path = FILES[media_type]
+    if os.path.exists(file_path): os.remove(file_path)
+    if media_type == 'movie': st.session_state.historique_movie = []
+    else: st.session_state.historique_tv = []
     st.rerun()
 
 # --- INTERFACE ---
 st.set_page_config(page_title="CinéPass Companion", page_icon="🍿", layout="centered")
-st.title("🍿 Mon Assistant Ciné")
 
-tab_recherche, tab_sorties, tab_recos, tab_historique = st.tabs([
+# --- SIDEBAR : LE SÉLECTEUR DE MODE ---
+mode_visuel = st.sidebar.radio("Mode", ["🎬 Films", "📺 Séries"])
+MODE = "movie" if mode_visuel == "🎬 Films" else "tv"
+
+st.title(f"Popcorn Assistant : {mode_visuel}")
+
+# Choix des variables selon le mode
+current_history = st.session_state.historique_movie if MODE == 'movie' else st.session_state.historique_tv
+current_service = movie_service if MODE == 'movie' else tv_service
+
+tab_recherche, tab_trends, tab_recos, tab_historique = st.tabs([
     "🔍 Recherche", 
-    "🗓️ À l'affiche", 
+    "🔥 Tendances", 
     "✨ Pour toi", 
     "📜 Historique"
 ])
 
 # --- TAB 1 : RECHERCHE ---
 with tab_recherche:
-    search_query = st.text_input("Rechercher un film...", key="input_search")
-
-    if search_query:
+    query = st.text_input(f"Rechercher {mode_visuel}...", key="search_input")
+    if query:
         try:
-            clean_results = get_safe_list(movie_service.search(search_query))
-            if not clean_results: st.warning("Aucun film trouvé.")
+            raw = current_service.search(query)
+            results = get_safe_list(raw)
+            if not results: st.warning("Rien trouvé.")
             else:
-                for r in clean_results[:3]:
-                    # Données sécurisées
-                    titre = getattr(r, 'title', r.get('title', 'Inconnu')) if hasattr(r, 'title') or isinstance(r, dict) else 'Inconnu'
-                    m_id = getattr(r, 'id', r.get('id')) if hasattr(r, 'id') or isinstance(r, dict) else None
-                    vote = getattr(r, 'vote_average', r.get('vote_average', 0)) if hasattr(r, 'vote_average') or isinstance(r, dict) else 0
-                    annee = str(getattr(r, 'release_date', r.get('release_date', '')))[0:4]
-                    overview = getattr(r, 'overview', r.get('overview', '')) if hasattr(r, 'overview') or isinstance(r, dict) else ''
+                for r in results[:3]:
+                    # Extraction intelligente (Film a un 'title', Série a un 'name')
+                    titre = getattr(r, 'title', getattr(r, 'name', 'Inconnu'))
+                    mid = getattr(r, 'id', None)
+                    vote = getattr(r, 'vote_average', 0)
+                    # Date (Film: release_date, Série: first_air_date)
+                    date_raw = getattr(r, 'release_date', getattr(r, 'first_air_date', ''))
+                    annee = str(date_raw)[:4] if date_raw else "????"
+                    overview = getattr(r, 'overview', '')
 
-                    if m_id:
+                    if mid:
                         col1, col2 = st.columns([3, 1])
                         with col1: st.write(f"**{titre}** ({annee})")
-                        with col2: st.button("Ajouter", key=f"btn_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote))
+                        with col2: st.button("Ajouter", key=f"add_{mid}", on_click=callback_ajouter, args=(mid, titre, vote, MODE))
                         
-                        # --- INFO STREAMING (APPEL DIRECT) ---
-                        platforms = get_providers_direct(m_id)
-                        if platforms:
-                            st.info(f"📺 **Dispo sur : {', '.join(platforms)}**")
-                        else:
-                            st.caption("📺 Pas d'offre streaming (abo) trouvée.")
+                        # Streaming
+                        plats = get_providers_direct(mid, MODE)
+                        if plats: st.info(f"📺 **{', '.join(plats[:2])}**")
                         
-                        # Lien Allociné
-                        url_seances = f"https://www.allocine.fr/recherche/?q={titre.replace(' ', '+')}"
-                        st.link_button("🎟️ Chercher séances", url_seances)
+                        # Séances (Seulement pour Films)
+                        if MODE == 'movie':
+                            url_seances = f"https://www.allocine.fr/recherche/?q={titre.replace(' ', '+')}"
+                            st.link_button("🎟️ Séances", url_seances)
 
-                        # Pitch + Trailer
-                        if overview or m_id:
-                            with st.expander(f"🎥 Résumé & Trailer"):
+                        if overview or mid:
+                            with st.expander("🎥 Résumé & Trailer"):
                                 if overview: st.write(f"_{overview}_")
-                                trailer_url = get_trailer(m_id)
-                                if trailer_url: st.video(trailer_url)
-                                else: st.caption("Pas de vidéo trouvée.")
+                                vid = get_trailer(mid, MODE)
+                                if vid: st.video(vid)
                         st.divider()
+        except Exception as e: st.error(f"Erreur: {e}")
 
-        except Exception as e: st.error(f"Erreur : {e}")
-
-# --- TAB 2 : SORTIES ---
-with tab_sorties:
+# --- TAB 2 : TENDANCES (Sorties) ---
+with tab_trends:
     try:
-        today = datetime.date.today()
-        start_date = today - datetime.timedelta(days=21)
-        end_date = today + datetime.timedelta(days=14)
-        genres_cible = "28|12|35|53|878|36"
+        # Pour les Films : Sorties récentes (-3 sem / +2 sem)
+        # Pour les Séries : Les plus populaires du moment (Tendance)
+        raw_list = []
         
-        raw_films = discover.discover_movies({
-            'release_date.gte': start_date.strftime('%Y-%m-%d'),
-            'release_date.lte': end_date.strftime('%Y-%m-%d'),
-            'with_genres': genres_cible, 
-            'sort_by': 'popularity.desc'
-        })
+        if MODE == 'movie':
+            today = datetime.date.today()
+            start = today - datetime.timedelta(days=21)
+            end = today + datetime.timedelta(days=14)
+            raw_list = discover.discover_movies({
+                'release_date.gte': start.strftime('%Y-%m-%d'),
+                'release_date.lte': end.strftime('%Y-%m-%d'),
+                'with_genres': "28|12|35|53|878|36", # Genres populaires
+                'sort_by': 'popularity.desc'
+            })
+        else:
+            # Pour les séries, on prend juste les "Trending" populaires
+            raw_list = tv_service.popular()
 
-        liste_films = get_safe_list(raw_films)
-        ids_vus = [m['id'] for m in st.session_state.historique]
+        safe_list = get_safe_list(raw_list)
+        ids_vus = [m['id'] for m in current_history]
         compteur = 0
 
-        if not liste_films:
-            st.info("Aucun film correspondant à tes genres.")
-        else:
-            for f in liste_films:
-                m_id = getattr(f, 'id', f.get('id')) if hasattr(f, 'id') or isinstance(f, dict) else None
-                if not m_id or str(m_id) in ids_vus: continue
-                
-                compteur += 1
-                vote_f = getattr(f, 'vote_average', f.get('vote_average', 0)) if hasattr(f, 'vote_average') or isinstance(f, dict) else 0
-                titre = getattr(f, 'title', f.get('title', 'Sans titre')) if hasattr(f, 'title') or isinstance(f, dict) else 'Sans titre'
-                path = getattr(f, 'poster_path', f.get('poster_path')) if hasattr(f, 'poster_path') or isinstance(f, dict) else None
-                date_sortie = getattr(f, 'release_date', f.get('release_date', '????')) if hasattr(f, 'release_date') or isinstance(f, dict) else '????'
-                overview = getattr(f, 'overview', f.get('overview', '')) if hasattr(f, 'overview') or isinstance(f, dict) else ''
+        for f in safe_list:
+            mid = getattr(f, 'id', None)
+            if not mid or str(mid) in ids_vus: continue
+            
+            compteur += 1
+            titre = getattr(f, 'title', getattr(f, 'name', 'Inconnu'))
+            vote = getattr(f, 'vote_average', 0)
+            poster = getattr(f, 'poster_path', None)
+            date_raw = getattr(f, 'release_date', getattr(f, 'first_air_date', '????'))
+            overview = getattr(f, 'overview', '')
 
-                col1, col2 = st.columns([1, 2])
-                with col1:
-                    if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
-                    else: st.markdown("🎬")
-                with col2:
-                    st.markdown(f"**{titre}**")
-                    st.caption(f"Sortie : {date_sortie} | ⭐ {vote_f}/10")
-                    
-                    url_pathe = "https://www.pathe.fr/cinemas/cinema-pathe-annecy"
-                    st.link_button("🎟️ Séances Annecy", url_pathe)
-                    st.button("Vu", key=f"saw_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote_f))
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                if poster: st.image(f"https://image.tmdb.org/t/p/w500{poster}")
+                else: st.markdown("📺")
+            with col2:
+                st.markdown(f"**{titre}**")
+                st.caption(f"📅 {date_raw} | ⭐ {vote}/10")
                 
-                with st.expander("🎥 Résumé & Trailer"):
-                    if overview: st.write(f"_{overview}_")
-                    trailer_url = get_trailer(m_id)
-                    if trailer_url: st.video(trailer_url)
-                    else: st.caption("Pas de vidéo trouvée.")
+                # Lien Pathé (Films seulement)
+                if MODE == 'movie':
+                    st.link_button("🎟️ Pathé Annecy", "https://www.pathe.fr/cinemas/cinema-pathe-annecy")
+                
+                st.button("Vu", key=f"saw_{mid}", on_click=callback_ajouter, args=(mid, titre, vote, MODE))
+            
+            with st.expander("🎥 Infos"):
+                if overview: st.write(f"_{overview}_")
+                vid = get_trailer(mid, MODE)
+                if vid: st.video(vid)
 
-                st.divider()
-                if compteur >= 10: break 
-    except Exception as e:
-        st.error(f"Erreur sorties : {e}")
+            st.divider()
+            if compteur >= 10: break
+    except Exception as e: st.error(f"Erreur tendances: {e}")
 
 # --- TAB 3 : RECOMMANDATIONS ---
 with tab_recos:
-    films_aimes = [m for m in st.session_state.historique if m['avis'] == 'Aimé']
-    if films_aimes:
-        st.subheader(f"Inspiré par '{films_aimes[-1]['title']}'")
+    # On filtre les "Aimé" de la bonne liste
+    likes = [m for m in current_history if m['avis'] == 'Aimé']
+    
+    if likes:
+        last = likes[-1]
+        st.subheader(f"Parce que tu as aimé '{last['title']}'")
         try:
-            recos_list = get_safe_list(movie_service.recommendations(movie_id=films_aimes[-1]['id']))
-            if recos_list:
+            # L'appel reco est identique structurellement (movie_id ou tv_id)
+            recos = get_safe_list(current_service.recommendations(movie_id=last['id']))
+            
+            if recos:
                 cols = st.columns(2)
-                for i in range(min(4, len(recos_list))):
-                    r = recos_list[i]
-                    titre = getattr(r, 'title', r.get('title')) if hasattr(r, 'title') or isinstance(r, dict) else ''
-                    path = getattr(r, 'poster_path', r.get('poster_path')) if hasattr(r, 'poster_path') or isinstance(r, dict) else None
-                    m_id = getattr(r, 'id', r.get('id')) if hasattr(r, 'id') or isinstance(r, dict) else None
-                    overview = getattr(r, 'overview', r.get('overview', '')) if hasattr(r, 'overview') or isinstance(r, dict) else ''
+                for i in range(min(4, len(recos))):
+                    r = recos[i]
+                    titre = getattr(r, 'title', getattr(r, 'name', ''))
+                    mid = getattr(r, 'id', None)
+                    poster = getattr(r, 'poster_path', None)
+                    overview = getattr(r, 'overview', '')
                     
                     with cols[i % 2]:
-                        if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
+                        if poster: st.image(f"https://image.tmdb.org/t/p/w500{poster}")
                         st.caption(f"**{titre}**")
                         
-                        # --- INFO STREAMING ---
-                        if m_id:
-                            plats = get_providers_direct(m_id)
-                            if plats: 
-                                st.info(f"📺 **{', '.join(plats[:2])}**")
-                        
-                        # Menu Infos complet
-                        with st.expander("ℹ️ Infos"):
-                            if overview: st.write(f"_{overview}_")
-                            if m_id:
-                                trailer_url = get_trailer(m_id)
-                                if trailer_url: st.video(trailer_url)
-
-                        if st.button("➕ Vu", key=f"add_reco_{m_id}"):
-                            vote_r = getattr(r, 'vote_average', r.get('vote_average', 0)) if hasattr(r, 'vote_average') or isinstance(r, dict) else 0
-                            callback_ajouter_film(m_id, titre, vote_r)
-                            st.rerun()
+                        if mid:
+                            plats = get_providers_direct(mid, MODE)
+                            if plats: st.info(f"📺 {', '.join(plats[:2])}")
+                            
+                            with st.expander("ℹ️"):
+                                if overview: st.caption(overview[:150] + "...")
+                                vid = get_trailer(mid, MODE)
+                                if vid: st.video(vid)
+                            
+                            if st.button("➕ Vu", key=f"rec_add_{mid}"):
+                                vote = getattr(r, 'vote_average', 0)
+                                callback_ajouter(mid, titre, vote, MODE)
+                                st.rerun()
                         st.divider()
-        except Exception as e: st.write(f"Oups: {e}")
+        except Exception as e: st.write(f"Pas de recos dispos ({e})")
     else:
-        st.info("Note des films 'Aimé' pour avoir des recos !")
+        st.info(f"Ajoute des {mode_visuel} 'Aimés' pour avoir des recos !")
 
 # --- TAB 4 : HISTORIQUE ---
 with tab_historique:
-    if st.session_state.historique:
-        st.write(f"**{len(st.session_state.historique)}** films vus.")
-        for movie in reversed(st.session_state.historique):
-            with st.expander(f"{movie['title']} — ⭐ {movie['vote']}/10"):
-                col_avis, col_del = st.columns([3, 1])
-                with col_avis:
-                    choix = ["Aimé", "Bof"]
-                    idx = choix.index(movie['avis']) if movie['avis'] in choix else 0
-                    nouvel_avis = st.radio("Avis :", choix, index=idx, key=f"rad_{movie['id']}", horizontal=True)
-                    if nouvel_avis != movie['avis']: callback_modifier_avis(movie['id'], nouvel_avis)
-                with col_del:
-                    st.button("🗑️", key=f"del_{movie['id']}", on_click=callback_supprimer_film, args=(movie['id'],))
+    if current_history:
+        st.write(f"**{len(current_history)}** {mode_visuel} vus.")
+        # On inverse pour voir les derniers en haut
+        for media in reversed(current_history):
+            with st.expander(f"{media['title']} — ⭐ {media['vote']}/10"):
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    opts = ["Aimé", "Bof"]
+                    idx = opts.index(media['avis']) if media['avis'] in opts else 0
+                    new_avis = st.radio("Avis", opts, index=idx, key=f"rad_{media['id']}", horizontal=True)
+                    if new_avis != media['avis']:
+                        callback_modifier_avis(media['id'], new_avis, MODE)
+                with c2:
+                    st.button("🗑️", key=f"del_{media['id']}", on_click=callback_supprimer, args=(media['id'], MODE))
         
         st.divider()
-        if st.button("🗑️ Tout effacer l'historique", key="clear_all"): callback_vider_tout()
+        if st.button("Tout effacer", key="clear_all"): callback_vider(MODE)
     else:
-        st.info("Rien ici pour l'instant.")
+        st.info("Historique vide.")
