@@ -28,6 +28,7 @@ if 'historique' not in st.session_state:
 
 # --- FONCTIONS UTILITAIRES ---
 def get_safe_list(api_response):
+    """Nettoie la réponse API"""
     try:
         if hasattr(api_response, 'results'): data = api_response.results
         elif isinstance(api_response, dict) and 'results' in api_response: data = api_response['results']
@@ -38,17 +39,28 @@ def get_safe_list(api_response):
     except: return []
 
 def get_providers(movie_id):
-    """Récupère les plateformes de streaming en France (Flatrate = Abonnement)"""
+    """Récupère les plateformes de streaming en France"""
     try:
         providers = movie_service.watch_providers(movie_id)
         if hasattr(providers, 'results') and 'FR' in providers.results:
             fr_data = providers.results['FR']
-            # On cherche les plateformes par abonnement (flatrate)
             if 'flatrate' in fr_data:
-                # On retourne une liste de noms : ['Netflix', 'Disney+', ...]
                 return [p['provider_name'] for p in fr_data['flatrate']]
     except: return []
     return []
+
+def get_trailer(movie_id):
+    """Récupère le lien YouTube de la bande-annonce"""
+    try:
+        videos = movie_service.videos(movie_id)
+        for v in videos:
+            if getattr(v, 'site', '') == "YouTube" and getattr(v, 'type', '') == "Trailer":
+                return f"https://www.youtube.com/watch?v={v.key}"
+        for v in videos:
+            if getattr(v, 'site', '') == "YouTube":
+                return f"https://www.youtube.com/watch?v={v.key}"
+    except: return None
+    return None
 
 # --- ACTIONS ---
 def callback_ajouter_film(movie_id, title, vote):
@@ -113,19 +125,22 @@ with tab_recherche:
                         with col1: st.write(f"**{titre}** ({annee})")
                         with col2: st.button("Ajouter", key=f"btn_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote))
                         
-                        # Streaming & Séances
+                        # Infos Streaming
                         platforms = get_providers(m_id)
-                        if platforms:
-                            st.caption(f"📺 Dispo sur : {', '.join(platforms)}")
+                        if platforms: st.caption(f"📺 Dispo sur : {', '.join(platforms)}")
                         
-                        # Bouton Séances (Lien externe intelligent)
-                        # On utilise Allociné avec une recherche pré-remplie, c'est le plus fiable
+                        # Lien Allociné (Recherche)
                         url_seances = f"https://www.allocine.fr/recherche/?q={titre.replace(' ', '+')}"
-                        st.link_button("🎟️ Voir les séances", url_seances)
+                        st.link_button("🎟️ Chercher séances", url_seances)
 
-                        if overview:
-                            with st.expander("📄 Résumé"): st.caption(overview)
-                            
+                        # Pitch + Trailer
+                        if overview or m_id:
+                            with st.expander(f"🎥 Résumé & Trailer"):
+                                if overview: st.write(f"_{overview}_")
+                                trailer_url = get_trailer(m_id)
+                                if trailer_url: st.video(trailer_url)
+                                else: st.caption("Pas de vidéo trouvée.")
+
         except Exception as e: st.error(f"Erreur : {e}")
 
 # --- TAB 2 : SORTIES ---
@@ -168,21 +183,23 @@ with tab_sorties:
                 with col2:
                     st.markdown(f"**{titre}**")
                     st.caption(f"Sortie : {date_sortie} | ⭐ {vote_f}/10")
-                    # Lien direct vers le Pathé Annecy pour les films à l'affiche
-                    # P0645 est le code Allociné du Pathé Annecy
+                    
                     url_pathe = "https://www.pathe.fr/cinemas/cinema-pathe-annecy"
-                    st.link_button("🎟️ Voir séances Pathé Annecy", url_pathe)
+                    st.link_button("🎟️ Séances Annecy", url_pathe)
                     st.button("Vu", key=f"saw_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote_f))
                 
-                with st.expander("📄 Pitch"):
-                    st.write(f"_{overview}_")
+                with st.expander("🎥 Résumé & Trailer"):
+                    if overview: st.write(f"_{overview}_")
+                    trailer_url = get_trailer(m_id)
+                    if trailer_url: st.video(trailer_url)
+                    else: st.caption("Pas de vidéo trouvée.")
 
                 st.divider()
                 if compteur >= 10: break 
     except Exception as e:
         st.error(f"Erreur sorties : {e}")
 
-# --- TAB 3 : RECOMMANDATIONS ---
+# --- TAB 3 : RECOMMANDATIONS (COMPLET) ---
 with tab_recos:
     films_aimes = [m for m in st.session_state.historique if m['avis'] == 'Aimé']
     if films_aimes:
@@ -196,22 +213,31 @@ with tab_recos:
                     titre = getattr(r, 'title', r.get('title')) if hasattr(r, 'title') or isinstance(r, dict) else ''
                     path = getattr(r, 'poster_path', r.get('poster_path')) if hasattr(r, 'poster_path') or isinstance(r, dict) else None
                     m_id = getattr(r, 'id', r.get('id')) if hasattr(r, 'id') or isinstance(r, dict) else None
+                    overview = getattr(r, 'overview', r.get('overview', '')) if hasattr(r, 'overview') or isinstance(r, dict) else ''
                     
                     with cols[i % 2]:
                         if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
                         st.caption(f"**{titre}**")
                         
-                        # Streaming info pour les recos aussi !
+                        # Streaming info
                         if m_id:
                             plats = get_providers(m_id)
-                            if plats: st.caption(f"📺 {', '.join(plats[:2])}")
+                            if plats: st.caption(f"📺 {', '.join(plats[:2])}") # Affiche max 2 plateformes pour pas surcharger
                         
+                        # Menu Infos complet
+                        with st.expander("ℹ️ Infos & Trailer"):
+                            if overview: st.write(f"_{overview}_")
+                            if m_id:
+                                trailer_url = get_trailer(m_id)
+                                if trailer_url: st.video(trailer_url)
+                                else: st.caption("Pas de vidéo.")
+
                         if st.button("➕ Vu", key=f"add_reco_{m_id}"):
                             vote_r = getattr(r, 'vote_average', r.get('vote_average', 0)) if hasattr(r, 'vote_average') or isinstance(r, dict) else 0
                             callback_ajouter_film(m_id, titre, vote_r)
                             st.rerun()
                         st.divider()
-        except: pass
+        except Exception as e: st.write(f"Oups: {e}")
     else:
         st.info("Note des films 'Aimé' pour avoir des recos !")
 
@@ -231,6 +257,6 @@ with tab_historique:
                     st.button("🗑️", key=f"del_{movie['id']}", on_click=callback_supprimer_film, args=(movie['id'],))
         
         st.divider()
-        if st.button("🗑️ Tout effacer", key="clear_all"): callback_vider_tout()
+        if st.button("🗑️ Tout effacer l'historique", key="clear_all"): callback_vider_tout()
     else:
         st.info("Rien ici pour l'instant.")
