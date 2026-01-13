@@ -45,6 +45,11 @@ def sauvegarder_historique(media_type, data_list):
         for m in data_list:
             f.write(f"{m['id']}|{m['title']}|{m['vote']}|{m['avis']}\n")
 
+# Fonction pour générer le texte du backup
+def generer_backup(data_list):
+    """Crée une chaîne de texte prête à être sauvegardée"""
+    return "\n".join([f"{m['id']}|{m['title']}|{m['vote']}|{m['avis']}" for m in data_list])
+
 st.session_state.historique_movie = charger_historique("movie")
 st.session_state.historique_tv = charger_historique("tv")
 
@@ -224,7 +229,7 @@ with tab_trends:
             if compteur >= 10: break
     except Exception as e: st.error(f"Erreur tendances: {e}")
 
-# --- TAB 3 : RECOMMANDATIONS (CORRIGÉ) ---
+# --- TAB 3 : RECOMMANDATIONS ---
 with tab_recos:
     likes = [m for m in current_history if m['avis'] == 'Aimé']
     
@@ -232,7 +237,6 @@ with tab_recos:
         last = likes[-1]
         st.subheader(f"Parce que tu as aimé '{last['title']}'")
         try:
-            # --- CORRECTION ICI : On utilise le bon argument selon le mode ---
             if MODE == 'movie':
                 raw_recos = movie_service.recommendations(movie_id=last['id'])
             else:
@@ -271,8 +275,23 @@ with tab_recos:
     else:
         st.info(f"Ajoute des {mode_visuel} 'Aimés' pour avoir des recos !")
 
-# --- TAB 4 : HISTORIQUE ---
+# --- TAB 4 : HISTORIQUE + BACKUP ---
 with tab_historique:
+    st.subheader(f"💾 Sauvegarde & Restauration")
+    st.caption("Télécharge ton historique pour ne pas le perdre.")
+    
+    # Création du texte de backup pour le mode actuel
+    txt_backup = generer_backup(current_history)
+    nom_fichier = f"backup_films.txt" if MODE == 'movie' else f"backup_series.txt"
+    
+    st.download_button(
+        label=f"📥 Télécharger mon historique ({mode_visuel})",
+        data=txt_backup,
+        file_name=nom_fichier,
+        mime="text/plain"
+    )
+    st.divider()
+
     if current_history:
         st.write(f"**{len(current_history)}** {mode_visuel} vus.")
         for media in reversed(current_history):
@@ -288,6 +307,6 @@ with tab_historique:
                     st.button("🗑️", key=f"del_{media['id']}", on_click=callback_supprimer, args=(media['id'], MODE))
         
         st.divider()
-        if st.button("Tout effacer", key="clear_all"): callback_vider(MODE)
+        if st.button("⚠️ Tout effacer (Irréversible)", key="clear_all"): callback_vider(MODE)
     else:
         st.info("Historique vide.")
