@@ -6,7 +6,7 @@ import os
 # --- CONFIGURATION TMDb ---
 tmdb = TMDb()
 # Remplace par ta vraie clé entre les guillemets
-tmdb.api_key = '5ccac4fafac407ac28bb55c4fd44fb9c' 
+tmdb.api_key = "5ccac4fafac407ac28bb55c4fd44fb9c" 
 tmdb.language = 'fr'
 movie_service = Movie()
 discover = Discover()
