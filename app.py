@@ -47,12 +47,17 @@ search_query = st.text_input("Rechercher un film (ex: Avatar, Inception...)")
 if search_query:
     try:
         search_results = movie_service.search(search_query)
-        # Vérification si des résultats existent (gère les listes et les objets)
-        if search_results and len(search_results) > 0:
-            for r in search_results[:3]:
+        
+        # --- LA CORRECTION EST ICI ---
+        # On force la conversion en liste pour éviter l'erreur "slice"
+        results_list = list(search_results)
+        
+        if results_list:
+            # Maintenant on peut prendre les 3 premiers sans erreur
+            for r in results_list[:3]:
                 col_s1, col_s2 = st.columns([3, 1])
                 with col_s1:
-                    # Sécurisation de la date
+                    # On sécurise la date
                     date_val = getattr(r, 'release_date', '')
                     year = date_val[:4] if date_val else "????"
                     st.write(f"**{r.title}** ({year})")
@@ -62,9 +67,11 @@ if search_query:
                         st.success("Ajouté !")
                         st.rerun()
         else:
-            st.warning("Aucun film trouvé pour cette recherche.")
+            st.warning("Aucun film trouvé.")
+
     except Exception as e:
-        st.error(f"L'erreur réelle est : {e}")
+        # On garde l'affichage de l'erreur réelle au cas où, mais ça ne devrait plus servir
+        st.error(f"Erreur : {e}")
 
 st.divider()
 
