@@ -26,7 +26,7 @@ if 'historique' not in st.session_state:
                         'avis': l[3] if len(l) > 3 else "Aimé"
                     })
 
-# --- FONCTIONS UTILITAIRES BLINDÉES ---
+# --- FONCTIONS UTILITAIRES ---
 def get_safe_list(api_response):
     """Nettoie la réponse API"""
     try:
@@ -39,35 +39,46 @@ def get_safe_list(api_response):
     except: return []
 
 def get_providers(movie_id):
-    """Récupère les plateformes de streaming en France (Netflix, Disney+, etc.)"""
+    """Récupère les plateformes de streaming (Version robuste)"""
     try:
-        # Récupération des données
-        providers = movie_service.watch_providers(movie_id)
+        # On récupère l'objet brut
+        raw = movie_service.watch_providers(movie_id)
         
-        # On sécurise l'accès aux données 'results'
-        results = getattr(providers, 'results', None)
+        # 1. On essaie d'accéder aux résultats (dict ou objet)
+        results = None
+        if hasattr(raw, 'results'): results = raw.results
+        elif isinstance(raw, dict) and 'results' in raw: results = raw['results']
+        
         if not results: return []
 
-        # On cherche la France ('FR') de manière sécurisée (compatible objet ou dict)
-        fr_data = None
-        if hasattr(results, 'FR'): fr_data = results.FR
-        elif isinstance(results, dict) and 'FR' in results: fr_data = results['FR']
+        # 2. On cherche la France ('FR')
+        # L'astuce : on convertit 'results' en dict si ce n'est pas le cas
+        if hasattr(results, '_asdict'): results_dict = results._asdict()
+        elif hasattr(results, '__dict__'): results_dict = results.__dict__
+        elif isinstance(results, dict): results_dict = results
+        else: return [] # Format inconnu
+
+        if 'FR' not in results_dict: return []
+        fr_data = results_dict['FR']
+
+        # 3. On cherche 'flatrate' (Abonnement SVOD)
+        # Là aussi, fr_data peut être un objet ou un dict
+        flatrate = []
+        if isinstance(fr_data, dict):
+            flatrate = fr_data.get('flatrate', [])
+        else:
+            flatrate = getattr(fr_data, 'flatrate', [])
+
+        # 4. Extraction des noms
+        names = []
+        if flatrate:
+            for p in flatrate:
+                if isinstance(p, dict): names.append(p.get('provider_name'))
+                else: names.append(getattr(p, 'provider_name', ''))
         
-        if fr_data:
-            # On cherche les offres 'flatrate' (Abonnement svod)
-            # Compatible objet ou dict
-            flatrate = getattr(fr_data, 'flatrate', fr_data.get('flatrate') if isinstance(fr_data, dict) else None)
-            
-            if flatrate:
-                # On extrait juste les noms
-                names = []
-                for p in flatrate:
-                    p_name = getattr(p, 'provider_name', p.get('provider_name') if isinstance(p, dict) else '')
-                    if p_name: names.append(p_name)
-                return names
-    except:
+        return names
+    except Exception:
         return []
-    return []
 
 def get_trailer(movie_id):
     """Récupère le lien YouTube de la bande-annonce"""
@@ -146,13 +157,12 @@ with tab_recherche:
                         with col1: st.write(f"**{titre}** ({annee})")
                         with col2: st.button("Ajouter", key=f"btn_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote))
                         
-                        # --- INFO STREAMING ---
-                        # On affiche en GRAS pour que ce soit visible
+                        # --- INFO STREAMING (Correction) ---
                         platforms = get_providers(m_id)
                         if platforms:
-                            st.markdown(f"📺 **Dispo sur : {', '.join(platforms)}**")
+                            st.info(f"📺 **Dispo sur : {', '.join(platforms)}**")
                         else:
-                            st.caption("📺 Pas d'offre streaming trouvée.")
+                            st.caption("📺 Pas d'offre streaming (abo) trouvée.")
                         
                         # Lien Allociné
                         url_seances = f"https://www.allocine.fr/recherche/?q={titre.replace(' ', '+')}"
@@ -249,7 +259,7 @@ with tab_recos:
                         if m_id:
                             plats = get_providers(m_id)
                             if plats: 
-                                st.markdown(f"📺 **{', '.join(plats[:2])}**")
+                                st.info(f"📺 **{', '.join(plats[:2])}**")
                         
                         # Menu Infos complet
                         with st.expander("ℹ️ Infos"):
