@@ -5,7 +5,7 @@ import os
 
 # --- CONFIGURATION TMDb ---
 tmdb = TMDb()
-tmdb.api_key = 'TA_CLE_API_ICI' # <--- Assure-toi que ta clé est bien là
+tmdb.api_key = '5ccac4fafac407ac28bb55c4fd44fb9c' # <--- Assure-toi que ta clé est bien là
 tmdb.language = 'fr'
 movie_service = Movie()
 discover = Discover()
@@ -44,20 +44,12 @@ search_query = st.text_input("Rechercher un film (ex: Inception, Avatar...)")
 if search_query:
     try:
         search_results = movie_service.search(search_query)
-        # On vérifie si on a des résultats exploitables
-        if hasattr(search_results, 'results') and search_results.results:
-            results_to_show = search_results.results[:3]
-        elif isinstance(search_results, list):
-            results_to_show = search_results[:3]
-        else:
-            results_to_show = []
-
-        if results_to_show:
-            for r in results_to_show:
+        # tmdbv3api renvoie une liste d'objets directement
+        if len(search_results) > 0:
+            for r in search_results[:3]:
                 col_s1, col_s2 = st.columns([3, 1])
                 with col_s1:
-                    date = getattr(r, 'release_date', '????-')
-                    year = date[:4] if date else "????"
+                    year = r.release_date[:4] if getattr(r, 'release_date', None) else "????"
                     st.write(f"**{r.title}** ({year})")
                 with col_s2:
                     if st.button("Ajouter", key=f"search_{r.id}"):
@@ -65,10 +57,9 @@ if search_query:
                         st.success("Ajouté !")
                         st.rerun()
         else:
-            st.warning("Aucun résultat trouvé.")
+            st.warning("Aucun film trouvé.")
     except Exception as e:
-        st.error(f"Erreur de recherche. Essaie un titre plus simple.")
-
+        st.error("Problème de connexion à TMDb. Vérifie ta clé API.")
 st.divider()
 
 # --- SECTION 2 : SORTIES DE LA SEMAINE ---
