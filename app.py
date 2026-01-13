@@ -6,7 +6,7 @@ import os
 # --- CONFIGURATION TMDb ---
 tmdb = TMDb()
 # Remplace par ta vraie clé entre les guillemets
-tmdb.api_key = "5ccac4fafac407ac28bb55c4fd44fb9c" 
+tmdb.api_key = '5ccac4fafac407ac28bb55c4fd44fb9c' 
 tmdb.language = 'fr'
 movie_service = Movie()
 discover = Discover()
@@ -63,8 +63,8 @@ if search_query:
                         st.rerun()
         else:
             st.warning("Aucun film trouvé pour cette recherche.")
-    except Exception:
-        st.error("Erreur de connexion à TMDb. Vérifie ta clé API.")
+    except Exception as e:
+        st.error(f"L'erreur réelle est : {e}")
 
 st.divider()
 
@@ -101,8 +101,8 @@ try:
                     sauvegarder_film(f.id, f.title)
                     st.rerun()
             st.divider()
-except Exception:
-    st.error("Impossible de charger les sorties de la semaine.")
+except Exception as e:
+        st.error(f"L'erreur réelle est : {e}")
 
 # --- SECTION 3 : RECOMMANDATIONS ---
 if historique:
