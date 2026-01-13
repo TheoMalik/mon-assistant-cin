@@ -15,8 +15,11 @@ discover = Discover()
 HISTORIQUE_FILE = "mes_films.txt"
 
 def sauvegarder_film(movie_id, title):
+    # On ajoute un saut de ligne au début pour être sûr de ne pas coller deux IDs
     with open(HISTORIQUE_FILE, "a") as f:
         f.write(f"{movie_id}|{title}\n")
+    # On vide le cache de Streamlit pour forcer la mise à jour des recommandations
+    st.cache_data.clear()
 
 def charger_historique():
     if not os.path.exists(HISTORIQUE_FILE) or os.stat(HISTORIQUE_FILE).st_size == 0:
@@ -64,8 +67,8 @@ if search_query:
                 with col_s2:
                     if st.button("Ajouter", key=f"search_{r.id}"):
                         sauvegarder_film(r.id, r.title)
-                        st.success("Ajouté !")
-                        st.rerun()
+                        st.success(f"'{r.title}' ajouté !")
+                        st.rerun() # <--- Très important pour rafraîchir l'app
         else:
             st.warning("Aucun film trouvé.")
 
