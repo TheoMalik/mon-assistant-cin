@@ -18,16 +18,28 @@ def sauvegarder_film(movie_id, title):
         f.write(f"{movie_id}|{title}\n")
 
 def charger_historique():
-    if not os.path.exists(HISTORIQUE_FILE):
+    if not os.path.exists(HISTORIQUE_FILE) or os.stat(HISTORIQUE_FILE).st_size == 0:
         return []
     with open(HISTORIQUE_FILE, "r") as f:
-        return [line.strip().split("|")[0] for line in f.readlines()]
+        # On ignore les lignes vides
+        return [line.strip().split("|")[0] for line in f.readlines() if "|" in line]
 
 # --- INTERFACE MOBILE ---
 st.set_page_config(page_title="CinéPass Companion", page_icon="🎬")
 
 st.title("🍿 Mon Assistant Ciné")
 st.subheader("Sorties SF & Histoire de la semaine")
+
+# --- BARRE LATÉRALE (SIDEBAR) ---
+with st.sidebar:
+    st.header("⚙️ Paramètres")
+    if st.button("🗑️ Vider mon historique"):
+        if os.path.exists(HISTORIQUE_FILE):
+            os.remove(HISTORIQUE_FILE)
+            st.success("Historique supprimé !")
+            st.rerun()
+        else:
+            st.info("L'historique est déjà vide.")
 
 # Date du jour et de la semaine prochaine
 today = datetime.date.today()
@@ -80,19 +92,30 @@ if historique:
             st.caption(r.title)
 
 
-# --- BARRE DE RECHERCHE POUR ENRICHIR L'HISTORIQUE ---
+# --- BARRE DE RECHERCHE SÉCURISÉE ---
 st.divider()
 st.subheader("🔍 Ajouter un film déjà vu")
 search_query = st.text_input("Rechercher un film (ex: Inception, Gladiator...)")
 
 if search_query:
-    search_results = movie_service.search(search_query)
-    for r in search_results[:3]: # On affiche les 3 premiers résultats
-        col_s1, col_s2 = st.columns([3, 1])
-        with col_s1:
-            st.write(f"{r.title} ({r.release_date[:4] if r.release_date else '?'})")
-        with col_s2:
-            if st.button("Ajouter", key=f"search_{r.id}"):
-                sauvegarder_film(r.id, r.title)
-                st.success("Ajouté !")
-                st.rerun()
+    try:
+        search_results = movie_service.search(search_query)
+        
+        # On vérifie si on a bien reçu des résultats avant de boucler
+        if search_results and len(search_results) > 0:
+            for r in search_results[:3]: 
+                col_s1, col_s2 = st.columns([3, 1])
+                with col_s1:
+                    # On sécurise l'affichage de la date au cas où elle est vide
+                    year = r.release_date[:4] if getattr(r, 'release_date', None) else "????"
+                    st.write(f"{r.title} ({year})")
+                with col_s2:
+                    if st.button("Ajouter", key=f"search_{r.id}"):
+                        sauvegarder_film(r.id, r.title)
+                        st.success("Ajouté !")
+                        st.rerun()
+        else:
+            st.warning("Aucun film trouvé pour cette recherche.")
+            
+    except Exception as e:
+        st.error("Oups ! Petit souci avec la recherche. Réessaie avec un autre titre.")
