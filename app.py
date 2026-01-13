@@ -125,16 +125,18 @@ st.divider()
 st.subheader("🗓️ À l'affiche (Sélection Populaire)")
 try:
     today = datetime.date.today()
-    # On garde la fenêtre large qui fonctionne (-3 semaines / +2 semaines)
+    # On garde la fenêtre large (-3 semaines / +2 semaines)
     start_date = today - datetime.timedelta(days=21)
     end_date = today + datetime.timedelta(days=14)
     
-    # Genres : Action(28), Aventure(12), Comédie(35), Thriller(53), SF(878), Histoire(36)
-    # J'ai retiré Drame et Animation pour cibler "Blockbusters", dis-moi si tu veux les remettre.
+    # CORRECTION ICI : On utilise '|' (OU) au lieu de ',' (ET)
+    # Action|Aventure|Comédie|Thriller|SF|Histoire
+    genres_cible = "28|12|35|53|878|36"
+    
     raw_films = discover.discover_movies({
         'release_date.gte': start_date.strftime('%Y-%m-%d'),
         'release_date.lte': end_date.strftime('%Y-%m-%d'),
-        'with_genres': "28,12,35,53,878,36", 
+        'with_genres': genres_cible, 
         'sort_by': 'popularity.desc'
     })
 
@@ -168,14 +170,14 @@ try:
                 st.button("J'ai vu", key=f"saw_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote_f))
             
             st.divider()
-            if compteur >= 10: break # Top 10 des résultats
+            if compteur >= 10: break 
             
         if compteur == 0:
             st.info("Tu es à jour sur les gros films du moment !")
 
 except Exception as e:
     st.error(f"Erreur technique : {e}")
-    
+
 # --- SECTION 3 : RECOMMANDATIONS ---
 films_aimes = [m for m in st.session_state.historique if m['avis'] == 'Aimé']
 if films_aimes:
