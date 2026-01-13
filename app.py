@@ -10,20 +10,25 @@ tmdb.language = 'fr'
 movie_service = Movie()
 discover = Discover()
 
-# --- INITIALISATION ---
-HISTORIQUE_FILE = "mes_films.txt"
-
+# --- INITIALISATION SÉCURISÉE ---
 if 'historique' not in st.session_state:
+    st.session_state.historique = []
     if os.path.exists(HISTORIQUE_FILE):
         with open(HISTORIQUE_FILE, "r", encoding="utf-8") as f:
-            # Format : id|titre|note_globale|mon_avis
-            lignes = [line.strip().split("|") for line in f.readlines() if "|" in line]
-            st.session_state.historique = [
-                {'id': l[0], 'title': l[1], 'vote': l[2], 'avis': l[3]} for l in lignes
-            ]
-    else:
-        st.session_state.historique = []
-
+            for line in f.readlines():
+                l = line.strip().split("|")
+                if len(l) >= 2:
+                    # On gère les anciens fichiers (2 colonnes) et les nouveaux (4 colonnes)
+                    m_id = l[0]
+                    m_title = l[1]
+                    m_vote = l[2] if len(l) > 2 else "0.0"  # Note par défaut si manquante
+                    m_avis = l[3] if len(l) > 3 else "Aimé" # Avis par défaut si manquant
+                    st.session_state.historique.append({
+                        'id': m_id, 
+                        'title': m_title, 
+                        'vote': m_vote, 
+                        'avis': m_avis
+                    })
 # --- FONCTIONS ACTIONS ---
 def callback_ajouter_film(movie_id, title, vote):
     movie_id_str = str(movie_id)
