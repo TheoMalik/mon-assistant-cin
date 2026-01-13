@@ -26,7 +26,7 @@ if 'historique' not in st.session_state:
                         'avis': l[3] if len(l) > 3 else "Aimé"
                     })
 
-# --- FONCTIONS UTILITAIRES ---
+# --- FONCTIONS UTILITAIRES BLINDÉES ---
 def get_safe_list(api_response):
     """Nettoie la réponse API"""
     try:
@@ -39,14 +39,34 @@ def get_safe_list(api_response):
     except: return []
 
 def get_providers(movie_id):
-    """Récupère les plateformes de streaming en France"""
+    """Récupère les plateformes de streaming en France (Netflix, Disney+, etc.)"""
     try:
+        # Récupération des données
         providers = movie_service.watch_providers(movie_id)
-        if hasattr(providers, 'results') and 'FR' in providers.results:
-            fr_data = providers.results['FR']
-            if 'flatrate' in fr_data:
-                return [p['provider_name'] for p in fr_data['flatrate']]
-    except: return []
+        
+        # On sécurise l'accès aux données 'results'
+        results = getattr(providers, 'results', None)
+        if not results: return []
+
+        # On cherche la France ('FR') de manière sécurisée (compatible objet ou dict)
+        fr_data = None
+        if hasattr(results, 'FR'): fr_data = results.FR
+        elif isinstance(results, dict) and 'FR' in results: fr_data = results['FR']
+        
+        if fr_data:
+            # On cherche les offres 'flatrate' (Abonnement svod)
+            # Compatible objet ou dict
+            flatrate = getattr(fr_data, 'flatrate', fr_data.get('flatrate') if isinstance(fr_data, dict) else None)
+            
+            if flatrate:
+                # On extrait juste les noms
+                names = []
+                for p in flatrate:
+                    p_name = getattr(p, 'provider_name', p.get('provider_name') if isinstance(p, dict) else '')
+                    if p_name: names.append(p_name)
+                return names
+    except:
+        return []
     return []
 
 def get_trailer(movie_id):
@@ -114,6 +134,7 @@ with tab_recherche:
             if not clean_results: st.warning("Aucun film trouvé.")
             else:
                 for r in clean_results[:3]:
+                    # Données sécurisées
                     titre = getattr(r, 'title', r.get('title', 'Inconnu')) if hasattr(r, 'title') or isinstance(r, dict) else 'Inconnu'
                     m_id = getattr(r, 'id', r.get('id')) if hasattr(r, 'id') or isinstance(r, dict) else None
                     vote = getattr(r, 'vote_average', r.get('vote_average', 0)) if hasattr(r, 'vote_average') or isinstance(r, dict) else 0
@@ -125,11 +146,15 @@ with tab_recherche:
                         with col1: st.write(f"**{titre}** ({annee})")
                         with col2: st.button("Ajouter", key=f"btn_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote))
                         
-                        # Infos Streaming
+                        # --- INFO STREAMING ---
+                        # On affiche en GRAS pour que ce soit visible
                         platforms = get_providers(m_id)
-                        if platforms: st.caption(f"📺 Dispo sur : {', '.join(platforms)}")
+                        if platforms:
+                            st.markdown(f"📺 **Dispo sur : {', '.join(platforms)}**")
+                        else:
+                            st.caption("📺 Pas d'offre streaming trouvée.")
                         
-                        # Lien Allociné (Recherche)
+                        # Lien Allociné
                         url_seances = f"https://www.allocine.fr/recherche/?q={titre.replace(' ', '+')}"
                         st.link_button("🎟️ Chercher séances", url_seances)
 
@@ -140,6 +165,7 @@ with tab_recherche:
                                 trailer_url = get_trailer(m_id)
                                 if trailer_url: st.video(trailer_url)
                                 else: st.caption("Pas de vidéo trouvée.")
+                        st.divider()
 
         except Exception as e: st.error(f"Erreur : {e}")
 
@@ -199,7 +225,7 @@ with tab_sorties:
     except Exception as e:
         st.error(f"Erreur sorties : {e}")
 
-# --- TAB 3 : RECOMMANDATIONS (COMPLET) ---
+# --- TAB 3 : RECOMMANDATIONS ---
 with tab_recos:
     films_aimes = [m for m in st.session_state.historique if m['avis'] == 'Aimé']
     if films_aimes:
@@ -219,18 +245,18 @@ with tab_recos:
                         if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
                         st.caption(f"**{titre}**")
                         
-                        # Streaming info
+                        # --- INFO STREAMING ---
                         if m_id:
                             plats = get_providers(m_id)
-                            if plats: st.caption(f"📺 {', '.join(plats[:2])}") # Affiche max 2 plateformes pour pas surcharger
+                            if plats: 
+                                st.markdown(f"📺 **{', '.join(plats[:2])}**")
                         
                         # Menu Infos complet
-                        with st.expander("ℹ️ Infos & Trailer"):
+                        with st.expander("ℹ️ Infos"):
                             if overview: st.write(f"_{overview}_")
                             if m_id:
                                 trailer_url = get_trailer(m_id)
                                 if trailer_url: st.video(trailer_url)
-                                else: st.caption("Pas de vidéo.")
 
                         if st.button("➕ Vu", key=f"add_reco_{m_id}"):
                             vote_r = getattr(r, 'vote_average', r.get('vote_average', 0)) if hasattr(r, 'vote_average') or isinstance(r, dict) else 0
