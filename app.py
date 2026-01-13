@@ -2,7 +2,7 @@ import streamlit as st
 from tmdbv3api import TMDb, Movie, Discover
 import datetime
 import os
-import requests
+import requests 
 
 # --- CONFIGURATION TMDb ---
 tmdb = TMDb()
@@ -52,7 +52,7 @@ def get_providers_direct(movie_id):
             # On cherche l'abonnement (flatrate)
             if 'flatrate' in fr_data:
                 return [p['provider_name'] for p in fr_data['flatrate']]
-    exceptException:
+    except Exception: # <--- C'EST CORRIGÉ ICI (Espace ajouté)
         return []
     return []
 
