@@ -121,20 +121,21 @@ if search_query:
 
 st.divider()
 
-# --- SECTION 2 : A L'AFFICHE RÉCEMMENT ---
-st.subheader("🗓️ À l'affiche (Récent & À venir)")
+# --- SECTION 2 : A L'AFFICHE (Large) ---
+st.subheader("🗓️ À l'affiche (Populaires)")
 try:
     today = datetime.date.today()
-    # On élargit : films sortis il y a 2 semaines et à venir dans 2 semaines
-    start_date = today - datetime.timedelta(days=14)
+    # On regarde large : 3 semaines en arrière et 2 semaines en avant
+    start_date = today - datetime.timedelta(days=21)
     end_date = today + datetime.timedelta(days=14)
     
+    # Recherche beaucoup plus permissive
     raw_films = discover.discover_movies({
-        'primary_release_date.gte': start_date.strftime('%Y-%m-%d'),
-        'primary_release_date.lte': end_date.strftime('%Y-%m-%d'),
-        'with_genres': "28,12,35,53,18,878,36,16", # Action, Aventure, Comédie...
-        'region': 'FR',
+        'release_date.gte': start_date.strftime('%Y-%m-%d'),
+        'release_date.lte': end_date.strftime('%Y-%m-%d'),
         'sort_by': 'popularity.desc'
+        # J'ai enlevé 'region' et 'with_genres' pour tester. 
+        # Si ça marche, on remettra les genres après !
     })
 
     liste_films = get_safe_list(raw_films)
@@ -142,17 +143,16 @@ try:
     compteur = 0
 
     if not liste_films:
-        st.info("Aucun film trouvé sur cette période.")
+        st.info("Bizarre... Aucun film trouvé, même en recherche large.")
     else:
         for f in liste_films:
-            # Sécurités de lecture
             m_id = getattr(f, 'id', f.get('id')) if hasattr(f, 'id') or isinstance(f, dict) else None
             if not m_id or str(m_id) in ids_vus: continue
             
             compteur += 1
             col1, col2 = st.columns([1, 2])
             
-            # Données du film
+            # Récupération sécurisée des infos
             vote_f = getattr(f, 'vote_average', f.get('vote_average', 0)) if hasattr(f, 'vote_average') or isinstance(f, dict) else 0
             titre = getattr(f, 'title', f.get('title', 'Sans titre')) if hasattr(f, 'title') or isinstance(f, dict) else 'Sans titre'
             path = getattr(f, 'poster_path', f.get('poster_path')) if hasattr(f, 'poster_path') or isinstance(f, dict) else None
@@ -160,20 +160,21 @@ try:
 
             with col1:
                 if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
-                else: st.markdown("🎬 *Pas d'image*")
+                else: st.markdown("🎬")
             with col2:
                 st.markdown(f"**{titre}**")
-                st.caption(f"📅 Sortie : {date_sortie} | ⭐ {vote_f}/10")
+                st.caption(f"Sortie : {date_sortie} | ⭐ {vote_f}/10")
                 st.button("J'ai vu", key=f"saw_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote_f))
             
             st.divider()
             if compteur >= 10: break 
         
         if compteur == 0:
-            st.info("Tu as déjà vu tous les films récents ! 🎬")
+            st.info("Tu as déjà vu tous les films populaires du moment !")
 
 except Exception as e:
-    st.error(f"Erreur sorties : {e}")
+    st.error(f"Erreur technique : {e}")
+    
 # --- SECTION 3 : RECOMMANDATIONS ---
 films_aimes = [m for m in st.session_state.historique if m['avis'] == 'Aimé']
 if films_aimes:
