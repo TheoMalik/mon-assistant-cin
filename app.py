@@ -5,7 +5,7 @@ import os
 
 # --- CONFIGURATION TMDb ---
 tmdb = TMDb()
-tmdb.api_key = '5ccac4fafac407ac28bb55c4fd44fb9c'
+tmdb.api_key = '5ccac4fafac407ac28bb55c4fd44fb9c' 
 tmdb.language = 'fr'
 movie_service = Movie()
 discover = Discover()
@@ -26,18 +26,32 @@ if 'historique' not in st.session_state:
                         'avis': l[3] if len(l) > 3 else "Aimé"
                     })
 
-# --- FONCTION MAGIQUE DE NETTOYAGE ---
+# --- FONCTION DE NETTOYAGE RENFORCÉE ---
 def get_safe_list(api_response):
-    """Extrait proprement la liste de films de n'importe quelle réponse API"""
-    # 1. Si c'est un objet qui contient une liste 'results', on prend la liste
-    if hasattr(api_response, 'results'):
-        return api_response.results
-    # 2. Si c'est déjà une liste, on la renvoie telle quelle
-    if isinstance(api_response, list):
-        return api_response
-    # 3. Sinon, on essaie de convertir, mais c'est souvent là que ça coince,
-    # donc on renvoie une liste vide par sécurité si les étapes 1 et 2 échouent.
-    return []
+    """Transforme n'importe quelle réponse API en une liste Python propre."""
+    try:
+        # 1. On cherche la liste cachée dans l'attribut .results
+        if hasattr(api_response, 'results'):
+            data = api_response.results
+        # 2. Ou dans la clé ['results'] (si c'est un dictionnaire)
+        elif isinstance(api_response, dict) and 'results' in api_response:
+            data = api_response['results']
+        # 3. Sinon on prend l'objet tel quel
+        else:
+            data = api_response
+            
+        # 4. ÉTAPE CRUCIALE : On force la conversion en liste pure
+        # Cela "casse" l'enveloppe AsObj qui empêchait le découpage [:3]
+        clean_list = list(data)
+        
+        # 5. Sécurité anti-bug : Si la liste contient des chaînes de texte (ex: 'page', 'total'),
+        # c'est qu'on a converti le menu au lieu des films. On annule.
+        if clean_list and isinstance(clean_list[0], str):
+            return []
+            
+        return clean_list
+    except:
+        return []
 
 # --- FONCTIONS ACTIONS ---
 def callback_ajouter_film(movie_id, title, vote):
@@ -81,26 +95,27 @@ search_query = st.text_input("Rechercher un film...", key="input_search")
 if search_query:
     try:
         raw_results = movie_service.search(search_query)
-        # UTILISATION DE LA FONCTION MAGIQUE
+        # On utilise la nouvelle fonction blindée
         clean_results = get_safe_list(raw_results)
         
         if not clean_results:
             st.warning("Aucun film trouvé.")
         else:
+            # Maintenant clean_results est une vraie liste, on peut couper [:3] sans peur
             for r in clean_results[:3]:
-                col1, col2 = st.columns([3, 1])
-                # Sécurités supplémentaires sur les données
-                titre = getattr(r, 'title', 'Titre inconnu')
-                m_id = getattr(r, 'id', None)
-                vote_global = getattr(r, 'vote_average', 0)
-                date_full = getattr(r, 'release_date', '')
-                annee = date_full[:4] if date_full else "????"
+                # Lecture sécurisée des attributs (compatible dict et objet)
+                titre = getattr(r, 'title', r.get('title')) if hasattr(r, 'title') or isinstance(r, dict) else 'Titre Inconnu'
+                m_id = getattr(r, 'id', r.get('id')) if hasattr(r, 'id') or isinstance(r, dict) else None
+                vote = getattr(r, 'vote_average', r.get('vote_average', 0)) if hasattr(r, 'vote_average') or isinstance(r, dict) else 0
+                date_full = getattr(r, 'release_date', r.get('release_date', '')) if hasattr(r, 'release_date') or isinstance(r, dict) else ''
+                annee = str(date_full)[:4] if date_full else "????"
 
-                if m_id: # On affiche seulement si on a un ID valide
+                if m_id:
+                    col1, col2 = st.columns([3, 1])
                     with col1:
                         st.write(f"**{titre}** ({annee})")
                     with col2:
-                        st.button("Ajouter", key=f"btn_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote_global))
+                        st.button("Ajouter", key=f"btn_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote))
     except Exception as e:
         st.error(f"Erreur technique : {e}")
 
@@ -118,22 +133,23 @@ try:
         'sort_by': 'popularity.desc'
     })
 
-    # UTILISATION DE LA FONCTION MAGIQUE
     liste_films = get_safe_list(raw_films)
     ids_vus = [m['id'] for m in st.session_state.historique]
     compteur = 0
 
     for f in liste_films:
-        m_id = getattr(f, 'id', None)
+        m_id = getattr(f, 'id', f.get('id')) if hasattr(f, 'id') or isinstance(f, dict) else None
         if not m_id or str(m_id) in ids_vus: continue
         
         compteur += 1
         col1, col2 = st.columns([1, 2])
-        vote_f = getattr(f, 'vote_average', 0)
-        titre = getattr(f, 'title', 'Sans titre')
+        
+        # Lecture sécurisée
+        vote_f = getattr(f, 'vote_average', f.get('vote_average', 0)) if hasattr(f, 'vote_average') or isinstance(f, dict) else 0
+        titre = getattr(f, 'title', f.get('title', 'Sans titre')) if hasattr(f, 'title') or isinstance(f, dict) else 'Sans titre'
+        path = getattr(f, 'poster_path', f.get('poster_path')) if hasattr(f, 'poster_path') or isinstance(f, dict) else None
         
         with col1:
-            path = getattr(f, 'poster_path', None)
             if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
         with col2:
             st.markdown(f"**{titre}**")
@@ -151,18 +167,18 @@ if films_aimes:
     st.subheader(f"✨ Parce que tu as aimé '{films_aimes[-1]['title']}'")
     try:
         raw_recos = movie_service.recommendations(movie_id=films_aimes[-1]['id'])
-        # UTILISATION DE LA FONCTION MAGIQUE
         recos_list = get_safe_list(raw_recos)
         
         if recos_list:
             cols = st.columns(3)
-            # On s'assure de ne pas dépasser le nombre de films dispos
             for i in range(min(3, len(recos_list))):
                 r = recos_list[i]
+                titre = getattr(r, 'title', r.get('title')) if hasattr(r, 'title') or isinstance(r, dict) else ''
+                path = getattr(r, 'poster_path', r.get('poster_path')) if hasattr(r, 'poster_path') or isinstance(r, dict) else None
+                
                 with cols[i]:
-                    path = getattr(r, 'poster_path', None)
                     if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
-                    st.caption(f"{getattr(r, 'title', '')}")
+                    st.caption(f"{titre}")
     except:
         pass
 st.divider()
