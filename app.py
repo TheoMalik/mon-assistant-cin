@@ -6,7 +6,8 @@ import requests
 
 # --- CONFIGURATION TMDb ---
 tmdb = TMDb()
-API_KEY = '5ccac4fafac407ac28bb55c4fd44fb9c'  
+# REMPLACE PAR TA VRAIE CLÉ
+API_KEY = 'TA_CLE_API_ICI'  
 tmdb.api_key = API_KEY
 tmdb.language = 'fr'
 
@@ -15,18 +16,16 @@ movie_service = Movie()
 tv_service = TV()
 discover = Discover()
 
-# --- GESTION DES FICHIERS (Double Sauvegarde) ---
+# --- GESTION DES FICHIERS ---
 FILES = {
     "movie": "mes_films.txt",
     "tv": "mes_series.txt"
 }
 
-# On initialise les historiques s'ils n'existent pas
 if 'historique_movie' not in st.session_state: st.session_state.historique_movie = []
 if 'historique_tv' not in st.session_state: st.session_state.historique_tv = []
 
 def charger_historique(media_type):
-    """Charge le fichier correspondant au mode (film ou tv)"""
     file_path = FILES[media_type]
     data = []
     if os.path.exists(file_path):
@@ -42,17 +41,15 @@ def charger_historique(media_type):
     return data
 
 def sauvegarder_historique(media_type, data_list):
-    """Sauvegarde la liste dans le bon fichier"""
     file_path = FILES[media_type]
     with open(file_path, "w", encoding="utf-8") as f:
         for m in data_list:
             f.write(f"{m['id']}|{m['title']}|{m['vote']}|{m['avis']}\n")
 
-# Chargement au démarrage
 st.session_state.historique_movie = charger_historique("movie")
 st.session_state.historique_tv = charger_historique("tv")
 
-# --- FONCTIONS UTILITAIRES UNIVERSELLES ---
+# --- FONCTIONS UTILITAIRES ---
 def get_safe_list(api_response):
     try:
         if hasattr(api_response, 'results'): data = api_response.results
@@ -64,13 +61,10 @@ def get_safe_list(api_response):
     except: return []
 
 def get_providers_direct(media_id, media_type):
-    """Récupère le streaming (Netflix etc) pour Film ou Série"""
     try:
-        # L'URL change selon le type (movie ou tv)
         url = f"https://api.themoviedb.org/3/{media_type}/{media_id}/watch/providers?api_key={API_KEY}"
         response = requests.get(url)
         data = response.json()
-        
         if 'results' in data and 'FR' in data['results']:
             fr_data = data['results']['FR']
             if 'flatrate' in fr_data:
@@ -79,7 +73,6 @@ def get_providers_direct(media_id, media_type):
     return []
 
 def get_trailer(media_id, media_type):
-    """Récupère le trailer (Compatible Film et Série)"""
     try:
         service = movie_service if media_type == 'movie' else tv_service
         videos = service.videos(media_id)
@@ -92,7 +85,7 @@ def get_trailer(media_id, media_type):
     except: return None
     return None
 
-# --- ACTIONS (Adaptées au mode) ---
+# --- ACTIONS ---
 def callback_ajouter(media_id, title, vote, media_type):
     mid = str(media_id)
     target_list = st.session_state.historique_movie if media_type == 'movie' else st.session_state.historique_tv
@@ -129,23 +122,18 @@ def callback_vider(media_type):
     st.rerun()
 
 # --- INTERFACE ---
-st.set_page_config(page_title="CinéPass Companion", page_icon="🍿", layout="centered")
+st.set_page_config(page_title="Popcorn Assistant", page_icon="🍿", layout="centered")
 
-# --- SIDEBAR : LE SÉLECTEUR DE MODE ---
 mode_visuel = st.sidebar.radio("Mode", ["🎬 Films", "📺 Séries"])
 MODE = "movie" if mode_visuel == "🎬 Films" else "tv"
 
 st.title(f"Popcorn Assistant : {mode_visuel}")
 
-# Choix des variables selon le mode
 current_history = st.session_state.historique_movie if MODE == 'movie' else st.session_state.historique_tv
 current_service = movie_service if MODE == 'movie' else tv_service
 
 tab_recherche, tab_trends, tab_recos, tab_historique = st.tabs([
-    "🔍 Recherche", 
-    "🔥 Tendances", 
-    "✨ Pour toi", 
-    "📜 Historique"
+    "🔍 Recherche", "🔥 Tendances", "✨ Pour toi", "📜 Historique"
 ])
 
 # --- TAB 1 : RECHERCHE ---
@@ -158,11 +146,9 @@ with tab_recherche:
             if not results: st.warning("Rien trouvé.")
             else:
                 for r in results[:3]:
-                    # Extraction intelligente (Film a un 'title', Série a un 'name')
                     titre = getattr(r, 'title', getattr(r, 'name', 'Inconnu'))
                     mid = getattr(r, 'id', None)
                     vote = getattr(r, 'vote_average', 0)
-                    # Date (Film: release_date, Série: first_air_date)
                     date_raw = getattr(r, 'release_date', getattr(r, 'first_air_date', ''))
                     annee = str(date_raw)[:4] if date_raw else "????"
                     overview = getattr(r, 'overview', '')
@@ -172,11 +158,9 @@ with tab_recherche:
                         with col1: st.write(f"**{titre}** ({annee})")
                         with col2: st.button("Ajouter", key=f"add_{mid}", on_click=callback_ajouter, args=(mid, titre, vote, MODE))
                         
-                        # Streaming
                         plats = get_providers_direct(mid, MODE)
                         if plats: st.info(f"📺 **{', '.join(plats[:2])}**")
                         
-                        # Séances (Seulement pour Films)
                         if MODE == 'movie':
                             url_seances = f"https://www.allocine.fr/recherche/?q={titre.replace(' ', '+')}"
                             st.link_button("🎟️ Séances", url_seances)
@@ -189,13 +173,10 @@ with tab_recherche:
                         st.divider()
         except Exception as e: st.error(f"Erreur: {e}")
 
-# --- TAB 2 : TENDANCES (Sorties) ---
+# --- TAB 2 : TENDANCES ---
 with tab_trends:
     try:
-        # Pour les Films : Sorties récentes (-3 sem / +2 sem)
-        # Pour les Séries : Les plus populaires du moment (Tendance)
         raw_list = []
-        
         if MODE == 'movie':
             today = datetime.date.today()
             start = today - datetime.timedelta(days=21)
@@ -203,11 +184,10 @@ with tab_trends:
             raw_list = discover.discover_movies({
                 'release_date.gte': start.strftime('%Y-%m-%d'),
                 'release_date.lte': end.strftime('%Y-%m-%d'),
-                'with_genres': "28|12|35|53|878|36", # Genres populaires
+                'with_genres': "28|12|35|53|878|36",
                 'sort_by': 'popularity.desc'
             })
         else:
-            # Pour les séries, on prend juste les "Trending" populaires
             raw_list = tv_service.popular()
 
         safe_list = get_safe_list(raw_list)
@@ -232,11 +212,8 @@ with tab_trends:
             with col2:
                 st.markdown(f"**{titre}**")
                 st.caption(f"📅 {date_raw} | ⭐ {vote}/10")
-                
-                # Lien Pathé (Films seulement)
                 if MODE == 'movie':
                     st.link_button("🎟️ Pathé Annecy", "https://www.pathe.fr/cinemas/cinema-pathe-annecy")
-                
                 st.button("Vu", key=f"saw_{mid}", on_click=callback_ajouter, args=(mid, titre, vote, MODE))
             
             with st.expander("🎥 Infos"):
@@ -248,17 +225,21 @@ with tab_trends:
             if compteur >= 10: break
     except Exception as e: st.error(f"Erreur tendances: {e}")
 
-# --- TAB 3 : RECOMMANDATIONS ---
+# --- TAB 3 : RECOMMANDATIONS (CORRIGÉ) ---
 with tab_recos:
-    # On filtre les "Aimé" de la bonne liste
     likes = [m for m in current_history if m['avis'] == 'Aimé']
     
     if likes:
         last = likes[-1]
         st.subheader(f"Parce que tu as aimé '{last['title']}'")
         try:
-            # L'appel reco est identique structurellement (movie_id ou tv_id)
-            recos = get_safe_list(current_service.recommendations(movie_id=last['id']))
+            # --- CORRECTION ICI : On utilise le bon argument selon le mode ---
+            if MODE == 'movie':
+                raw_recos = movie_service.recommendations(movie_id=last['id'])
+            else:
+                raw_recos = tv_service.recommendations(tv_id=last['id'])
+                
+            recos = get_safe_list(raw_recos)
             
             if recos:
                 cols = st.columns(2)
@@ -295,7 +276,6 @@ with tab_recos:
 with tab_historique:
     if current_history:
         st.write(f"**{len(current_history)}** {mode_visuel} vus.")
-        # On inverse pour voir les derniers en haut
         for media in reversed(current_history):
             with st.expander(f"{media['title']} — ⭐ {media['vote']}/10"):
                 c1, c2 = st.columns([3, 1])
