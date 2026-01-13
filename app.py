@@ -26,32 +26,34 @@ if 'historique' not in st.session_state:
                         'avis': l[3] if len(l) > 3 else "Aimé"
                     })
 
-# --- FONCTION DE NETTOYAGE RENFORCÉE ---
+# --- FONCTIONS UTILITAIRES ---
 def get_safe_list(api_response):
-    """Transforme n'importe quelle réponse API en une liste Python propre."""
+    """Nettoie la réponse API"""
     try:
-        # 1. On cherche la liste cachée dans l'attribut .results
-        if hasattr(api_response, 'results'):
-            data = api_response.results
-        # 2. Ou dans la clé ['results'] (si c'est un dictionnaire)
-        elif isinstance(api_response, dict) and 'results' in api_response:
-            data = api_response['results']
-        # 3. Sinon on prend l'objet tel quel
-        else:
-            data = api_response
-            
-        # 4. ÉTAPE CRUCIALE : On force la conversion en liste pure
-        # Cela "casse" l'enveloppe AsObj qui empêchait le découpage [:3]
+        if hasattr(api_response, 'results'): data = api_response.results
+        elif isinstance(api_response, dict) and 'results' in api_response: data = api_response['results']
+        else: data = api_response
         clean_list = list(data)
-        
-        # 5. Sécurité anti-bug : Si la liste contient des chaînes de texte (ex: 'page', 'total'),
-        # c'est qu'on a converti le menu au lieu des films. On annule.
-        if clean_list and isinstance(clean_list[0], str):
-            return []
-            
+        if clean_list and isinstance(clean_list[0], str): return []
         return clean_list
+    except: return []
+
+def get_trailer(movie_id):
+    """Récupère le lien YouTube de la bande-annonce"""
+    try:
+        # On demande les vidéos associées au film
+        videos = movie_service.videos(movie_id)
+        # On cherche une vidéo de type "Trailer" sur "YouTube"
+        for v in videos:
+            if getattr(v, 'site', '') == "YouTube" and getattr(v, 'type', '') == "Trailer":
+                return f"https://www.youtube.com/watch?v={v.key}"
+        # Si pas de trailer, on cherche un "Teaser"
+        for v in videos:
+            if getattr(v, 'site', '') == "YouTube":
+                return f"https://www.youtube.com/watch?v={v.key}"
     except:
-        return []
+        return None
+    return None
 
 # --- FONCTIONS ACTIONS ---
 def callback_ajouter_film(movie_id, title, vote):
@@ -94,42 +96,39 @@ search_query = st.text_input("Rechercher un film...", key="input_search")
 
 if search_query:
     try:
-        raw_results = movie_service.search(search_query)
-        # On utilise la nouvelle fonction blindée
-        clean_results = get_safe_list(raw_results)
-        
-        if not clean_results:
-            st.warning("Aucun film trouvé.")
+        clean_results = get_safe_list(movie_service.search(search_query))
+        if not clean_results: st.warning("Aucun film trouvé.")
         else:
-            # Maintenant clean_results est une vraie liste, on peut couper [:3] sans peur
             for r in clean_results[:3]:
-                # Lecture sécurisée des attributs (compatible dict et objet)
-                titre = getattr(r, 'title', r.get('title')) if hasattr(r, 'title') or isinstance(r, dict) else 'Titre Inconnu'
+                # Extraction des données
+                titre = getattr(r, 'title', r.get('title', 'Inconnu')) if hasattr(r, 'title') or isinstance(r, dict) else 'Inconnu'
                 m_id = getattr(r, 'id', r.get('id')) if hasattr(r, 'id') or isinstance(r, dict) else None
                 vote = getattr(r, 'vote_average', r.get('vote_average', 0)) if hasattr(r, 'vote_average') or isinstance(r, dict) else 0
-                date_full = getattr(r, 'release_date', r.get('release_date', '')) if hasattr(r, 'release_date') or isinstance(r, dict) else ''
-                annee = str(date_full)[:4] if date_full else "????"
+                annee = str(getattr(r, 'release_date', r.get('release_date', '')))[0:4]
+                overview = getattr(r, 'overview', r.get('overview', 'Pas de résumé.')) if hasattr(r, 'overview') or isinstance(r, dict) else ''
 
                 if m_id:
                     col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.write(f"**{titre}** ({annee})")
-                    with col2:
-                        st.button("Ajouter", key=f"btn_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote))
-    except Exception as e:
-        st.error(f"Erreur technique : {e}")
+                    with col1: st.write(f"**{titre}** ({annee})")
+                    with col2: st.button("Ajouter", key=f"btn_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote))
+                    
+                    # Pitch + Trailer
+                    with st.expander(f"ℹ️ Résumé & Bande-annonce de {titre}"):
+                        if overview: st.write(f"_{overview}_")
+                        trailer_url = get_trailer(m_id)
+                        if trailer_url: st.video(trailer_url)
+                        else: st.caption("Pas de bande-annonce trouvée.")
+
+    except Exception as e: st.error(f"Erreur : {e}")
 
 st.divider()
 
-# --- SECTION 2 : A L'AFFICHE (Ciblé & Populaire) ---
+# --- SECTION 2 : A L'AFFICHE ---
 st.subheader("🗓️ À l'affiche (Sélection Populaire)")
 try:
     today = datetime.date.today()
-    # On garde la fenêtre large (-3 semaines / +2 semaines)
     start_date = today - datetime.timedelta(days=21)
     end_date = today + datetime.timedelta(days=14)
-    
-    # CORRECTION ICI : On utilise '|' (OU) au lieu de ',' (ET)
     # Action|Aventure|Comédie|Thriller|SF|Histoire
     genres_cible = "28|12|35|53|878|36"
     
@@ -148,19 +147,18 @@ try:
         st.info("Aucun film correspondant à tes genres pour le moment.")
     else:
         for f in liste_films:
-            # Sécurités habituelles
             m_id = getattr(f, 'id', f.get('id')) if hasattr(f, 'id') or isinstance(f, dict) else None
             if not m_id or str(m_id) in ids_vus: continue
             
             compteur += 1
-            col1, col2 = st.columns([1, 2])
-            
-            # Données
+            # Extraction des données
             vote_f = getattr(f, 'vote_average', f.get('vote_average', 0)) if hasattr(f, 'vote_average') or isinstance(f, dict) else 0
             titre = getattr(f, 'title', f.get('title', 'Sans titre')) if hasattr(f, 'title') or isinstance(f, dict) else 'Sans titre'
             path = getattr(f, 'poster_path', f.get('poster_path')) if hasattr(f, 'poster_path') or isinstance(f, dict) else None
             date_sortie = getattr(f, 'release_date', f.get('release_date', '????')) if hasattr(f, 'release_date') or isinstance(f, dict) else '????'
+            overview = getattr(f, 'overview', f.get('overview', 'Pas de résumé.')) if hasattr(f, 'overview') or isinstance(f, dict) else ''
 
+            col1, col2 = st.columns([1, 2])
             with col1:
                 if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
                 else: st.markdown("🎬")
@@ -169,14 +167,20 @@ try:
                 st.caption(f"Sortie : {date_sortie} | ⭐ {vote_f}/10")
                 st.button("J'ai vu", key=f"saw_{m_id}", on_click=callback_ajouter_film, args=(m_id, titre, vote_f))
             
+            # Pitch + Trailer (Dans un expander pour gagner de la place)
+            with st.expander(f"🎥 Voir résumé et bande-annonce"):
+                if overview: st.write(f"_{overview}_")
+                # Attention : ceci ajoute un appel API par film affiché, ça peut ralentir un peu l'affichage
+                trailer_url = get_trailer(m_id)
+                if trailer_url: st.video(trailer_url)
+                else: st.caption("Pas de bande-annonce trouvée.")
+
             st.divider()
             if compteur >= 10: break 
             
-        if compteur == 0:
-            st.info("Tu es à jour sur les gros films du moment !")
-
+        if compteur == 0: st.info("Tu es à jour sur les gros films du moment !")
 except Exception as e:
-    st.error(f"Erreur technique : {e}")
+    st.error(f"Erreur sorties : {e}")
 
 # --- SECTION 3 : RECOMMANDATIONS ---
 films_aimes = [m for m in st.session_state.historique if m['avis'] == 'Aimé']
@@ -192,30 +196,20 @@ if films_aimes:
                 r = recos_list[i]
                 titre = getattr(r, 'title', r.get('title')) if hasattr(r, 'title') or isinstance(r, dict) else ''
                 path = getattr(r, 'poster_path', r.get('poster_path')) if hasattr(r, 'poster_path') or isinstance(r, dict) else None
+                m_id = getattr(r, 'id', r.get('id')) if hasattr(r, 'id') or isinstance(r, dict) else None
                 
                 with cols[i]:
                     if path: st.image(f"https://image.tmdb.org/t/p/w500{path}")
                     st.caption(f"{titre}")
-    except:
-        pass
+                    if m_id:
+                        with st.expander("ℹ️"): # Petit bouton infos pour les recos
+                            overview = getattr(r, 'overview', r.get('overview', '')) if hasattr(r, 'overview') or isinstance(r, dict) else ''
+                            if overview: st.caption(overview[:150] + "...") # Résumé court
+    except: pass
 st.divider()
 
 # --- SECTION 4 : HISTORIQUE ---
-st.subheader("📜 Mon Historique & Avis")
+st.subheader("📜 Mon Historique")
 if st.session_state.historique:
     for movie in reversed(st.session_state.historique):
-        with st.expander(f"{movie['title']} — ⭐ {movie['vote']}/10"):
-            col_avis, col_del = st.columns([3, 1])
-            with col_avis:
-                choix = ["Aimé", "Bof"]
-                idx = choix.index(movie['avis']) if movie['avis'] in choix else 0
-                nouvel_avis = st.radio("Avis :", choix, index=idx, key=f"rad_{movie['id']}", horizontal=True)
-                if nouvel_avis != movie['avis']:
-                    callback_modifier_avis(movie['id'], nouvel_avis)
-            with col_del:
-                st.button("Supprimer", key=f"del_{movie['id']}", on_click=callback_supprimer_film, args=(movie['id'],))
-    
-    if st.button("🗑️ Tout effacer", key="clear_all"):
-        callback_vider_tout()
-else:
-    st.info("Ton historique est vide.")
+        with st.
