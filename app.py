@@ -6,8 +6,7 @@ import requests
 
 # --- CONFIGURATION TMDb ---
 tmdb = TMDb()
-# REMPLACE PAR TA VRAIE CLÉ
-API_KEY = 'TA_CLE_API_ICI'  
+API_KEY = '5ccac4fafac407ac28bb55c4fd44fb9c'  
 tmdb.api_key = API_KEY
 tmdb.language = 'fr'
 
